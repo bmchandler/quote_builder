@@ -14,7 +14,10 @@ In scope:
 - One user, one business, on one machine. No accounts or sign-in.
 - Linux as the target system, run as a native desktop window (NiceGUI's
   native mode), not in a browser (decided 2026-10-17). macOS and
-  Windows aren't targeted or tested.
+  Windows aren't targeted or tested. The window is pywebview on GTK
+  (WebKitGTK), with PyGObject built in the venv against stock Debian
+  `-dev` packages (decided 2026-10-18; see DEVELOPMENT.md): no Qt, and
+  no venv reaching system site-packages.
 - Local storage in SQLite.
 - A business profile, clients, a catalog of reusable services, and
   quotes made of line items.
@@ -109,6 +112,8 @@ extensions can be looked up later.
 - The NiceGUI pages only call into that logic.
 - All SQL is in storage.py and schema.sql; the rest of the app works
   with the dataclasses in quotes.py.
+- Amounts are typed as text and read straight into Decimal (money.py),
+  never through float (so no `ui.number`).
 
 ## Storage
 
@@ -116,6 +121,8 @@ One SQLite database file, kept where pota_logger keeps its data
 (decided 2026-10-17): `data/` in a clone, `~/.local/share/quote-builder`
 for an installed release, and `~/.local/share/quote-builder-dev` for
 an installed development build, so testing never touches the real data.
+Built so far: `data/` and the installed release's folder
+(data_folder.py); the development build's folder comes with releases.
 
 Plain `sqlite3` from the standard library, no ORM (decided 2026-10-18):
 a small single-user app, and the SQL stays in plain view. The schema is
@@ -125,9 +132,12 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 ## Status and plan
 
 Built: quote number generation (quote_numbers.py); saving a new quote
-with its line items, and loading it back (storage.py).
+with its line items, and loading it back (storage.py); a first, bare
+quote screen in the native window (app.py): lines of description,
+quantity, and unit price, notes, Save, and opening a saved quote by
+number (read-only, typed in any case), with tests driving it through
+NiceGUI's simulated user.
 
-Next: saving changes to a draft, the business logic (totals, tax,
-discounts), then the quote screen: building a quote, saving it, and
-opening it again (the first focus, decided 2026-10-17). A single view
-per quote for now. Clients and the catalog come after.
+Next, growing the screen, storage, and tests together in small steps:
+saving changes to a draft, then totals, tax, and discounts per line.
+Clients and the catalog come after.

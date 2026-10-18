@@ -5,11 +5,12 @@ description = "A simple quote builder for micro businesses and solo consultants.
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "nicegui>=3.18.0",
+    "nicegui[native]>=3.18.0",
+    "pygobject>=3.58.1",
 ]
 
 [project.scripts]
-quote-builder = "quote_builder:main"
+quote-builder = "quote_builder.app:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]
@@ -18,7 +19,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -5,6 +5,10 @@ with uv (Python 3.13), storing data in SQLite. REQUIREMENTS.md is the
 source of truth for scope and rules; keep it updated in the same change
 whenever a rule changes.
 
+Setup, running, and tests are in DEVELOPMENT.md, imported here:
+
+@DEVELOPMENT.md
+
 ## How we work
 
 - Build in small "horizontal" steps: only what the current request needs.
