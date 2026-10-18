@@ -94,10 +94,8 @@ Revisions (decided 2026-10-17):
 
 Quote statuses: Draft, Quoted, Accepted, Declined, Expired, and
 Superseded for a revised version (Quoted, not Sent, as a quote may be
-given in person; decided 2026-10-17). A Quoted
-quote
-becomes Expired on its own once past its valid-until date (decided
-2026-10-17). The user can extend it, such as when a client asks for
+given in person; decided 2026-10-17). A Quoted quote becomes Expired
+on its own once past its valid-until date (decided 2026-10-17). The user can extend it, such as when a client asks for
 more time at the quoted price, by setting a later valid-until date.
 The new date replaces the old one on the quote (decided 2026-10-17);
 each extension is also logged out of the way (date extended, old and
@@ -109,6 +107,8 @@ extensions can be looked up later.
 - Business logic (totals, tax, numbering, status changes) is plain
   Python, apart from the UI, and tested without it.
 - The NiceGUI pages only call into that logic.
+- All SQL is in storage.py and schema.sql; the rest of the app works
+  with the dataclasses in quotes.py.
 
 ## Storage
 
@@ -117,10 +117,17 @@ One SQLite database file, kept where pota_logger keeps its data
 for an installed release, and `~/.local/share/quote-builder-dev` for
 an installed development build, so testing never touches the real data.
 
+Plain `sqlite3` from the standard library, no ORM (decided 2026-10-18):
+a small single-user app, and the SQL stays in plain view. The schema is
+in schema.sql, run on every start. Tables are STRICT; money is whole
+cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
+
 ## Status and plan
 
-Built: quote number generation (quote_numbers.py).
+Built: quote number generation (quote_numbers.py); saving a new quote
+with its line items, and loading it back (storage.py).
 
-Next: build the business logic and storage, test first, then the quote screen: building a quote, saving
-it, and opening it again (the first focus, decided 2026-10-17). A
-single view per quote for now.
+Next: saving changes to a draft, the business logic (totals, tax,
+discounts), then the quote screen: building a quote, saving it, and
+opening it again (the first focus, decided 2026-10-17). A single view
+per quote for now. Clients and the catalog come after.

@@ -1,0 +1,171 @@
+"""SQLite storage for quotes, with plain sqlite3.
+
+All SQL lives here and in schema.sql; the rest of the app works with
+the dataclasses in quotes.py.
+"""
+
+import sqlite3
+from collections.abc import Callable
+from dataclasses import replace
+from datetime import date
+from decimal import Decimal
+from importlib.resources import files
+from pathlib import Path
+
+from quote_builder.quote_numbers import new_quote_number
+from quote_builder.quotes import LineItem, Quote, Status
+
+SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
+
+# With 34 billion codes, a second clash in a row means something's wrong.
+MAX_NUMBER_TRIES = 5
+
+
+class NoFreeQuoteNumber(Exception):
+    """Every quote number drawn was already used."""
+
+
+def connect(path: Path | str) -> sqlite3.Connection:
+    """Open the database, creating its tables if needed."""
+    # Autocommit while setting up: PRAGMA foreign_keys does nothing inside
+    # a transaction. It's off by default, and only holds per connection.
+    conn = sqlite3.connect(path, autocommit=True)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.executescript(SCHEMA)
+    # From here on, `with conn:` wraps a transaction: commit on success,
+    # roll back on an exception.
+    conn.autocommit = False
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def save_new_quote(
+    conn: sqlite3.Connection,
+    quote: Quote,
+    draw_number: Callable[[], str] = new_quote_number,
+) -> Quote:
+    """Save a quote not yet in the database, giving it a new number.
+
+    Returns a copy with the number; `quote` itself is left as it was.
+    The quote and its line items are saved together or not at all.
+    """
+    with conn:
+        for _ in range(MAX_NUMBER_TRIES):
+            number = draw_number()
+            # On a clash, DO NOTHING inserts no row, so RETURNING gives
+            # none: no exception to catch, and the transaction goes on.
+            row = conn.execute(
+                """
+                INSERT INTO quotes
+                    (number, revision, status, issued_on, valid_until, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (number, revision) DO NOTHING
+                RETURNING id
+                """,
+                (
+                    number,
+                    quote.revision,
+                    quote.status,
+                    _iso(quote.issued_on),
+                    _iso(quote.valid_until),
+                    quote.notes,
+                ),
+            ).fetchone()
+            if row is not None:
+                break
+        else:
+            raise NoFreeQuoteNumber(f"{MAX_NUMBER_TRIES} numbers drawn, all used")
+        _insert_line_items(conn, row["id"], quote.line_items)
+    return replace(quote, number=number)
+
+
+def load_quote(
+    conn: sqlite3.Connection, number: str, revision: int = 0
+) -> Quote | None:
+    """The quote with this number and revision, or None if there's none."""
+    row = conn.execute(
+        """
+        SELECT id, number, revision, status, issued_on, valid_until, notes
+        FROM quotes
+        WHERE number = ? AND revision = ?
+        """,
+        (number, revision),
+    ).fetchone()
+    if row is None:
+        return None
+    lines = conn.execute(
+        """
+        SELECT description, quantity, unit_price_cents, tax_percent,
+               discount_cents, discount_percent
+        FROM line_items
+        WHERE quote_id = ?
+        ORDER BY position
+        """,
+        (row["id"],),
+    ).fetchall()
+    return Quote(
+        number=row["number"],
+        revision=row["revision"],
+        status=Status(row["status"]),
+        issued_on=_date(row["issued_on"]),
+        valid_until=_date(row["valid_until"]),
+        notes=row["notes"],
+        line_items=[_line_item(line) for line in lines],
+    )
+
+
+def _insert_line_items(
+    conn: sqlite3.Connection, quote_id: int, line_items: list[LineItem]
+) -> None:
+    conn.executemany(
+        """
+        INSERT INTO line_items
+            (quote_id, position, description, quantity, unit_price_cents,
+             tax_percent, discount_cents, discount_percent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                quote_id,
+                position,
+                item.description,
+                str(item.quantity),
+                item.unit_price_cents,
+                str(item.tax_percent),
+                item.discount_cents,
+                _text(item.discount_percent),
+            )
+            for position, item in enumerate(line_items)
+        ],
+    )
+
+
+def _line_item(row: sqlite3.Row) -> LineItem:
+    return LineItem(
+        description=row["description"],
+        quantity=Decimal(row["quantity"]),
+        unit_price_cents=row["unit_price_cents"],
+        tax_percent=Decimal(row["tax_percent"]),
+        discount_cents=row["discount_cents"],
+        discount_percent=_decimal(row["discount_percent"]),
+    )
+
+
+# Conversions done by hand rather than with sqlite3.register_adapter,
+# which would change every connection in the process.
+
+
+def _iso(value: date | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _date(value: str | None) -> date | None:
+    return None if value is None else date.fromisoformat(value)
+
+
+def _text(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _decimal(value: str | None) -> Decimal | None:
+    return None if value is None else Decimal(value)
