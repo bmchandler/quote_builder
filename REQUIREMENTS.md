@@ -119,7 +119,7 @@ an installed development build, so testing never touches the real data.
 
 ## Status and plan
 
-Built: nothing yet beyond the uv project.
+Built: quote number generation (quote_numbers.py).
 
 Next: build the business logic and storage, test first, then the quote screen: building a quote, saving
 it, and opening it again (the first focus, decided 2026-10-17). A
