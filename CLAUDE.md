@@ -28,6 +28,9 @@ whenever a rule changes.
 - REQUIREMENTS.md's "Status and plan" section says what's built and
   what's next; update it when a planned item lands.
 - No repo polish (linters, pre-commit, CI) unless the user asks.
+- Until close to the first release, the database schema and data files
+  can change freely: no migrations, and no need to keep existing data
+  in `data/`, unless the user says they're keeping hand-test data.
 
 ## Privacy
 
