@@ -46,6 +46,20 @@ def value(found):
     return element.value
 
 
+async def new_quote(user):
+    """Click New Quote and wait for the form (the click may ask first)."""
+    user.find("New Quote").click()
+    await eventually(lambda: heading(user) == "New Quote")
+
+
+def heading(user):
+    """The open form's heading, or None if no form is open."""
+    try:
+        return text(user.find(marker="heading"))
+    except AssertionError:
+        return None
+
+
 async def reload(user):
     """Open the page again, as after quotes were saved behind its back."""
     await user.open("/")
@@ -81,7 +95,7 @@ def saved_numbers(conn):
 
 
 async def test_save_a_new_quote(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2.5", "$30.00")
@@ -99,7 +113,7 @@ async def test_save_a_new_quote(user, conn):
 
 
 async def test_removed_line_is_not_saved(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2", "30")
@@ -113,7 +127,7 @@ async def test_removed_line_is_not_saved(user, conn):
 
 
 async def test_problem_names_the_line_and_saves_nothing(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2", "lots")
@@ -124,7 +138,7 @@ async def test_problem_names_the_line_and_saves_nothing(user, conn):
 
 
 async def test_line_needs_a_description(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "  ", "1", "45")
     user.find("Save").click()
 
@@ -150,7 +164,7 @@ async def test_open_a_draft_to_edit(user, conn):
 
 
 async def test_save_changes_to_a_draft(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
     [number] = saved_numbers(conn)
@@ -173,6 +187,7 @@ async def test_reopened_draft_saves_unchanged(user, conn):
 
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
     user.find("Save").click()
 
     assert load_quote(conn, saved.number) == saved
@@ -194,10 +209,10 @@ async def test_open_a_quoted_quote_read_only(user, conn):
 
 
 async def test_list_shows_saved_quotes_newest_first(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Clean gutters", "1", "85")
     user.find("Save").click()
 
@@ -251,7 +266,7 @@ async def test_starts_on_the_landing_view(user):
 
 
 async def test_new_quote_opens_the_form(user):
-    user.find("New Quote").click()
+    await new_quote(user)
     await user.should_see("Add Line")
     await user.should_not_see("Pick a quote on the left, or start a new one.")
 
@@ -263,10 +278,10 @@ async def test_side_panel_stays_beside_the_quote_at_any_width(user):
 
 
 async def test_new_quote_after_saving(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
-    user.find("New Quote").click()
+    await new_quote(user)
 
     await user.should_see("Add Line")
     await user.should_not_see("(Draft)")
@@ -284,7 +299,7 @@ def test_short_date_is_local(monkeypatch):
 
 
 async def test_totals_update_as_you_type(user):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Trim hedges", "2.5", "30")
     user.find(marker="discount-1").type("10%")
     user.find(marker="tax-1").type("7.25")
@@ -298,13 +313,13 @@ async def test_totals_update_as_you_type(user):
 
 
 async def test_new_quote_starts_at_zero(user):
-    user.find("New Quote").click()
+    await new_quote(user)
     await eventually(lambda: text(user.find(marker="foot-total")) == "$0.00")
     assert text(user.find(marker="line-total-1")) == ""
 
 
 async def test_blank_price_still_needed_to_save(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     user.find(marker="description-1").type("Mow lawn")
     user.find("Save").click()
 
@@ -313,7 +328,7 @@ async def test_blank_price_still_needed_to_save(user, conn):
 
 
 async def test_totals_wait_for_a_line_that_doesnt_read(user):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Trim hedges", "2", "lots")
 
     await eventually(lambda: text(user.find(marker="line-total-1")) == "—")
@@ -321,7 +336,7 @@ async def test_totals_wait_for_a_line_that_doesnt_read(user):
 
 
 async def test_discount_over_the_line_is_refused(user, conn):
-    user.find("New Quote").click()
+    await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find(marker="discount-1").type("50")
     user.find("Save").click()
@@ -371,3 +386,76 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
 
     await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, tax 7.25% = $67.50")
     assert text(user.find(marker="foot-total")) == "$72.39"
+
+
+DISCARD_QUESTION = "Discard unsaved changes?"
+
+
+async def test_unchanged_form_leaves_without_asking(user, conn):
+    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+
+    await new_quote(user)
+    await user.should_not_see(DISCARD_QUESTION)
+
+
+async def test_saved_form_leaves_without_asking(user):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Save").click()
+    await eventually(lambda: heading(user) != "New Quote")
+
+    await new_quote(user)
+    await user.should_not_see(DISCARD_QUESTION)
+
+
+async def test_change_undone_by_hand_leaves_without_asking(user):
+    await new_quote(user)
+    user.find(marker="description-1").type("Mow lawn")
+    user.find(marker="description-1").clear()
+
+    user.find("New Quote").click()
+    await user.should_not_see(DISCARD_QUESTION)
+
+
+async def test_keep_editing_keeps_the_changes(user):
+    await new_quote(user)
+    user.find(marker="description-1").type("Mow lawn")
+
+    user.find("New Quote").click()
+    await user.should_see(DISCARD_QUESTION)
+    await user.should_see("Changes to this new quote haven't been saved.")
+    user.find("Keep Editing").click()
+
+    await user.should_not_see(DISCARD_QUESTION)
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+
+
+async def test_discard_opens_the_other_quote(user, conn):
+    first = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    second = save_new_quote(conn, Quote(line_items=[LineItem("Clean gutters", Decimal(1), 8500)]))
+    await reload(user)
+    user.find(marker=f"quote-{first.number}").click()
+    await user.should_see(f"{first.number} (Draft)")
+    user.find(marker="price-1").clear().type("50")
+
+    user.find(marker=f"quote-{second.number}").click()
+    await user.should_see(f"Changes to {first.number} haven't been saved.")
+    user.find(kind=ui.button, content="Discard").click()
+
+    await user.should_see(f"{second.number} (Draft)")
+    assert load_quote(conn, first.number) == first
+
+
+async def test_clicking_the_open_quote_keeps_the_changes(user, conn):
+    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+    user.find(marker="price-1").clear().type("50")
+
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_not_see(DISCARD_QUESTION)
+    assert value(user.find(marker="price-1")) == "50"

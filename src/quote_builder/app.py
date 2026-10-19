@@ -36,22 +36,40 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
 
     def root() -> None:
         current: Quote | None = None  # the quote on the right, if any
+        # Whether the form on the right has changes not yet saved.
+        has_unsaved_changes: Callable[[], bool] = lambda: False
 
         # Handlers first: the list below calls open_quote as it's drawn.
         def show(quote: Quote | None) -> None:
-            nonlocal current
+            nonlocal current, has_unsaved_changes
             current = quote
+            has_unsaved_changes = lambda: False
             body.clear()
             with body:
                 if quote is None:
                     landing()
                 elif quote.status is Status.DRAFT:
-                    quote_editor(conn, quote, on_saved=show)
+                    has_unsaved_changes = quote_editor(conn, quote, on_saved=show)
                 else:
                     quote_view(quote)
             quote_list.refresh()
 
-        def open_quote(number: str) -> None:
+        async def may_leave() -> bool:
+            """True if there's nothing unsaved, or the user lets it go."""
+            if not has_unsaved_changes():
+                return True
+            name = current.number if current and current.number else "this new quote"
+            return await confirm_discard(name)
+
+        async def new_quote() -> None:
+            if await may_leave():
+                show(Quote())
+
+        async def open_quote(number: str) -> None:
+            if current is not None and current.number == number:
+                return  # already open
+            if not await may_leave():
+                return
             quote = load_quote(conn, number)
             if quote is None:  # deleted since the list was drawn
                 ui.notify(f"No quote {number}", type="warning")
@@ -68,7 +86,7 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
             search = ui.input(
                 "Search", on_change=lambda: quote_list.refresh()
             ).props("clearable").classes("w-full").mark("search")
-            ui.button("New Quote", icon="add", on_click=lambda: show(Quote()))
+            ui.button("New Quote", icon="add", on_click=new_quote)
 
             @ui.refreshable
             def quote_list() -> None:
@@ -92,6 +110,24 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
         show(None)
 
     return root
+
+
+async def confirm_discard(name: str) -> bool:
+    """Ask whether to drop unsaved changes to `name`; True to drop them."""
+    with ui.dialog() as dialog, ui.card():
+        ui.label("Discard unsaved changes?").classes("text-h6")
+        ui.label(f"Changes to {name} haven't been saved.")
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Keep Editing", on_click=lambda: dialog.submit(False)).props(
+                "flat"
+            )
+            ui.button("Discard", on_click=lambda: dialog.submit(True)).props(
+                "color=negative"
+            )
+    # Esc or a click outside closes it with None: keep editing.
+    answer = await dialog
+    dialog.delete()
+    return answer is True
 
 
 def landing() -> None:
@@ -193,12 +229,13 @@ class LineInputs:
 
 def quote_editor(
     conn: sqlite3.Connection, quote: Quote, on_saved: Callable[[Quote], None]
-) -> None:
-    """A form for a draft, new or saved; `on_saved` gets it once saved."""
-    if quote.number is None:
-        ui.label("New Quote").classes("text-h6")
-    else:
-        ui.label(f"{quote.number} ({quote.status})").classes("text-h6")
+) -> Callable[[], bool]:
+    """A form for a draft, new or saved; `on_saved` gets it once saved.
+
+    Returns a function telling whether the form has unsaved changes.
+    """
+    heading = "New Quote" if quote.number is None else f"{quote.number} ({quote.status})"
+    ui.label(heading).classes("text-h6").mark("heading")
     lines_column = ui.column().classes("w-full")
     lines: list[LineInputs] = []  # in order on the quote
     added = 0  # lines ever added, so each gets its own test marker
@@ -263,6 +300,25 @@ def quote_editor(
         add_line(item)
     if not quote.line_items:
         add_line()
+
+    def form_state() -> tuple:
+        """Everything typed in the form, to compare with what it opened with."""
+        typed_lines = tuple(
+            (
+                line.description.value,
+                line.quantity.value,
+                line.price.value,
+                line.discount.value,
+                line.tax.value,
+            )
+            for line in lines
+        )
+        return (typed_lines, notes.value)
+
+    # Saving shows the quote again in a new form, so this is also the
+    # state as last saved. Changes undone by hand count as no change.
+    opened_with = form_state()
+    return lambda: form_state() != opened_with
 
 
 def totals_foot(totals: QuoteTotals | None) -> None:

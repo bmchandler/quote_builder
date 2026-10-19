@@ -190,6 +190,16 @@ the open quote on the right and highlighted in the list. Before a
 quote is opened, the right side asks to pick one or start a new one;
 New Quote opens a blank form there, and clicking a quote in the list
 opens it there.
+
+Leaving a form with unsaved changes asks first (decided 2026-10-19):
+New Quote, or opening another quote from the list, shows "Discard
+unsaved changes?" with Keep Editing and Discard; Esc or a click outside
+keeps editing. Changes means the form differs from when it was opened
+or last saved, so a change undone by hand doesn't count. Clicking the
+quote already open does nothing. Closing the window doesn't ask: that
+waits for NiceGUI to pass on pywebview's closing event, which it
+doesn't yet (decided 2026-10-19; no workaround). Until then, the README
+tells users to save before closing.
 Each row shows the number and status, the first line's description,
 and the date last saved (local time); newest first. The time saved
 is kept to the second, in UTC (decided 2026-10-19): enough to keep
@@ -197,6 +207,6 @@ quotes in order. Search, as you
 type, matches the number, the notes, or any line's description, in any
 case. Each row also shows the quote's total.
 
-Next, growing the screen, storage, and tests together in small steps.
-Opening another quote or New Quote drops unsaved changes without
-asking: worth a warning soon. Clients and the catalog come after.
+Next, growing the screen, storage, and tests together in small steps:
+marking a quote Quoted, with its figures frozen. Clients and the
+catalog come after.
