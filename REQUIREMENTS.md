@@ -135,9 +135,11 @@ Built: quote number generation (quote_numbers.py); saving a new quote
 with its line items, and loading it back (storage.py); a first, bare
 quote screen in the native window (app.py): lines of description,
 quantity, and unit price, notes, Save, and opening a saved quote by
-number (read-only, typed in any case), with tests driving it through
-NiceGUI's simulated user.
+number (typed in any case), with tests driving it through NiceGUI's
+simulated user. A draft opens in the form, and Save updates it in
+place (its lines replaced); any other status opens read-only.
 
 Next, growing the screen, storage, and tests together in small steps:
-saving changes to a draft, then totals, tax, and discounts per line.
-Clients and the catalog come after.
+totals, tax, and discounts per line (the form doesn't show a line's tax
+or discount yet, so saving a draft would drop them). Clients and the
+catalog come after.

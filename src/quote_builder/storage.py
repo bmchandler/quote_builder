@@ -25,6 +25,10 @@ class NoFreeQuoteNumber(Exception):
     """Every quote number drawn was already used."""
 
 
+class NotADraft(Exception):
+    """The quote to change isn't a draft in the database."""
+
+
 def connect(path: Path | str) -> sqlite3.Connection:
     """Open the database, creating its tables if needed."""
     # Autocommit while setting up: PRAGMA foreign_keys does nothing inside
@@ -77,6 +81,38 @@ def save_new_quote(
             raise NoFreeQuoteNumber(f"{MAX_NUMBER_TRIES} numbers drawn, all used")
         _insert_line_items(conn, row["id"], quote.line_items)
     return replace(quote, number=number)
+
+
+def save_draft(conn: sqlite3.Connection, quote: Quote) -> None:
+    """Save changes to a draft already in the database.
+
+    Raises NotADraft if no draft has the quote's number and revision: once
+    quoted, a quote changes only by a new revision.
+    """
+    with conn:
+        # The status check is in the WHERE clause, so checking and changing
+        # are one step: no window for the status to change in between.
+        row = conn.execute(
+            """
+            UPDATE quotes
+            SET issued_on = ?, valid_until = ?, notes = ?
+            WHERE number = ? AND revision = ? AND status = 'Draft'
+            RETURNING id
+            """,
+            (
+                _iso(quote.issued_on),
+                _iso(quote.valid_until),
+                quote.notes,
+                quote.number,
+                quote.revision,
+            ),
+        ).fetchone()
+        if row is None:
+            raise NotADraft(f"{quote.number} isn't a draft")
+        # Replace the lines rather than matching old to new: simpler, and
+        # nothing refers to a line's id.
+        conn.execute("DELETE FROM line_items WHERE quote_id = ?", (row["id"],))
+        _insert_line_items(conn, row["id"], quote.line_items)
 
 
 def load_quote(

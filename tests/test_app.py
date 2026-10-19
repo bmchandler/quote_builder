@@ -6,7 +6,7 @@ import pytest
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page
-from quote_builder.quotes import LineItem, Quote
+from quote_builder.quotes import LineItem, Quote, Status
 from quote_builder.storage import connect, load_quote, save_new_quote
 
 
@@ -28,6 +28,12 @@ def fill_line(user, n, description, quantity, price):
     user.find(marker=f"description-{n}").type(description)
     user.find(marker=f"quantity-{n}").clear().type(quantity)
     user.find(marker=f"price-{n}").type(price)
+
+
+def value(found):
+    """The value of the one element found."""
+    [element] = found.elements
+    return element.value
 
 
 def saved_numbers(conn):
@@ -82,8 +88,11 @@ async def test_line_needs_a_description(user, conn):
     assert saved_numbers(conn) == []
 
 
-async def test_open_a_saved_quote(user, conn):
-    quote = Quote(line_items=[LineItem("Mow lawn", Decimal("1"), 4500)])
+async def test_open_a_draft_to_edit(user, conn):
+    quote = Quote(
+        notes="Front yard.",
+        line_items=[LineItem("Trim hedges", Decimal("2.5"), 123456)],
+    )
     saved = save_new_quote(conn, quote)
 
     # Typed in lowercase, with spaces around it.
@@ -91,7 +100,53 @@ async def test_open_a_saved_quote(user, conn):
     user.find("Open").click()
 
     await user.should_see(f"{saved.number} (Draft)")
+    assert value(user.find(marker="description-1")) == "Trim hedges"
+    assert value(user.find(marker="quantity-1")) == "2.5"
+    assert value(user.find(marker="price-1")) == "$1,234.56"
+    assert value(user.find("Notes")) == "Front yard."
+
+
+async def test_save_changes_to_a_draft(user, conn):
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Save").click()
+    [number] = saved_numbers(conn)
+
+    user.find(marker="price-1").clear().type("50")
+    user.find("Add Line").click()
+    fill_line(user, 2, "Edge walks", "1", "15")
+    user.find("Save").click()
+
+    assert saved_numbers(conn) == [number]
+    assert load_quote(conn, number).line_items == [
+        LineItem("Mow lawn", Decimal("1"), 5000),
+        LineItem("Edge walks", Decimal("1"), 1500),
+    ]
+
+
+async def test_reopened_draft_saves_unchanged(user, conn):
+    quote = Quote(line_items=[LineItem("Trim hedges", Decimal("2.5"), 123456)])
+    saved = save_new_quote(conn, quote)
+
+    user.find(marker="open-number").type(saved.number)
+    user.find("Open").click()
+    user.find("Save").click()
+
+    assert load_quote(conn, saved.number) == saved
+
+
+async def test_open_a_quoted_quote_read_only(user, conn):
+    quote = Quote(
+        status=Status.QUOTED,
+        line_items=[LineItem("Mow lawn", Decimal("1"), 4500)],
+    )
+    saved = save_new_quote(conn, quote)
+
+    user.find(marker="open-number").type(saved.number)
+    user.find("Open").click()
+
+    await user.should_see(f"{saved.number} (Quoted)")
     await user.should_see("Mow lawn: 1 × $45.00")
+    await user.should_not_see("Save")
 
 
 async def test_open_a_missing_quote(user):

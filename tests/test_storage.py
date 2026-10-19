@@ -1,4 +1,5 @@
 import sqlite3
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -8,8 +9,10 @@ from quote_builder.quotes import LineItem, Quote, Status
 from quote_builder.storage import (
     MAX_NUMBER_TRIES,
     NoFreeQuoteNumber,
+    NotADraft,
     connect,
     load_quote,
+    save_draft,
     save_new_quote,
 )
 
@@ -121,3 +124,45 @@ def test_line_with_both_discounts_is_refused(conn):
         save_new_quote(conn, both, numbers("Q-7KQ-M9XD"))
     # The whole save is rolled back, quote row included.
     assert load_quote(conn, "Q-7KQ-M9XD") is None
+
+
+def test_save_draft_replaces_its_fields_and_lines(conn):
+    saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
+    changed = replace(
+        saved,
+        notes="Back yard only.",
+        valid_until=date(2026, 12, 1),
+        line_items=[LineItem("Mow back lawn", Decimal("1"), 3000)],
+    )
+    save_draft(conn, changed)
+    assert load_quote(conn, "Q-7KQ-M9XD") == changed
+    count = conn.execute("SELECT count(*) FROM line_items").fetchone()[0]
+    assert count == 1
+
+
+def test_save_draft_refuses_a_quote_no_longer_a_draft(conn):
+    saved = save_new_quote(
+        conn, replace(lawn_quote(), status=Status.QUOTED), numbers("Q-7KQ-M9XD")
+    )
+    with pytest.raises(NotADraft):
+        save_draft(conn, replace(saved, notes="Changed"))
+    assert load_quote(conn, "Q-7KQ-M9XD") == saved
+
+
+def test_save_draft_refuses_a_missing_quote(conn):
+    with pytest.raises(NotADraft):
+        save_draft(conn, replace(lawn_quote(), number="Q-000-0000"))
+
+
+def test_failed_save_draft_keeps_the_old_lines(conn):
+    saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
+    both = LineItem(
+        "Mow lawn",
+        Decimal("1"),
+        4500,
+        discount_cents=500,
+        discount_percent=Decimal("10"),
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        save_draft(conn, replace(saved, notes="Changed", line_items=[both]))
+    assert load_quote(conn, "Q-7KQ-M9XD") == saved
