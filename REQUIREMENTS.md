@@ -45,13 +45,16 @@ Money is held as a whole number of cents, never as a float; amounts
 are worked out with `Decimal` and rounded to the cent where shown.
 
 - **Business profile** (one): name, contact details, logo, default
-  sales tax rate, and terms printed at the foot of each quote.
+  tax rate, and terms printed at the foot of each quote.
 - **Client**: name, email, phone, address.
+- **Tax rate**: a name (`Home county`) and its parts, each a name and a
+  percent (State 4.75%, County 1.5%, City 1%); its combined rate is
+  their sum.
 - **Catalog item**: a reusable service or part, with a description,
-  default price, unit (hour, each, flat, and so on), and tax rate
-  (often none for a service).
-- **Quote**: number, client, date issued, valid-until date, status,
-  notes, and line items.
+  default price, unit (hour, each, flat, and so on), and whether it's
+  taxable (often not, for a service).
+- **Quote**: number, client, tax rate, date issued, valid-until date,
+  status, notes, and line items.
 - **Line item**: description, quantity, unit price, discount, and tax
   rate.
   Picking a catalog item fills these in; they can then be changed for
@@ -62,6 +65,21 @@ Tax is per line item (decided 2026-10-17): parts usually carry sales
 tax, services often don't, and the app doesn't decide which; the user
 does. Fees (trip, disposal, and so on) are line items like any other,
 taxed or not as the user sets them (decided 2026-10-17).
+
+Whether something is taxed and at what rate are kept apart (decided
+2026-10-19), as they hang on different things: what's sold, and where.
+A catalog item says only whether it's taxable; a tax rate says how
+much, built from its parts (state, county, city, district), so a part
+that changes is changed once. A quote takes the business's default
+tax rate, changeable for a job elsewhere. Picking a catalog item fills
+in a line's tax with the quote's combined rate if the item is taxable,
+none if not. The line still stores the number itself, copied in, so a
+line typed by hand works as now, and a quoted quote's figures freeze as
+below. A tax category per item (parts, food, services) instead of
+taxable yes or no is a later option, for states that tax such groups
+differently. A quote shows one Tax line; tax by part (state, local) is
+an option, as the parts are kept. Built with the catalog and business
+profile steps.
 
 Discounts are per line item, as an amount or a percent (decided
 2026-10-17); a line's tax is worked out on its discounted amount.
@@ -74,6 +92,13 @@ Each line is worked out to the cent on its own (totals.py): quantity ×
 unit price, less the discount, then tax on what's left, each rounded
 half up (half a cent rounds up). The quote's totals add up the lines'
 cents, so the foot always matches the lines (decided 2026-10-19).
+
+That's the usual US sales tax rule (tax carried to a third decimal
+place, rounded up from 5), with tax figured per item, which most
+states allow beside per invoice, on the combined state and local
+rate. States that use bracket tables instead (Maryland, and Alabama in
+part) aren't supported, nor is rounding per invoice (decided
+2026-10-19).
 
 A draft's totals are worked out from its lines whenever shown, never
 stored. Once a quote is quoted, its figures are frozen (decided
