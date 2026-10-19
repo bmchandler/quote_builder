@@ -140,7 +140,11 @@ simulated user. A draft opens in the form, and Save updates it in
 place (its lines replaced); any other status opens read-only.
 
 The quote list (decided 2026-10-19) sits down the left side, always
-shown, with the open quote on the right and highlighted in the list.
+shown beside the quote at any window width (never a pop-over), with
+the open quote on the right and highlighted in the list. Before a
+quote is opened, the right side asks to pick one or start a new one;
+New Quote opens a blank form there, and clicking a quote in the list
+opens it there.
 Each row shows the number and status, the first line's description,
 and the date last saved (local time); newest first. The time saved
 is kept to the second, in UTC (decided 2026-10-19): enough to keep

@@ -75,6 +75,7 @@ def saved_numbers(conn):
 
 
 async def test_save_a_new_quote(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2.5", "$30.00")
@@ -92,6 +93,7 @@ async def test_save_a_new_quote(user, conn):
 
 
 async def test_removed_line_is_not_saved(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2", "30")
@@ -105,6 +107,7 @@ async def test_removed_line_is_not_saved(user, conn):
 
 
 async def test_problem_names_the_line_and_saves_nothing(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Add Line").click()
     fill_line(user, 2, "Trim hedges", "2", "lots")
@@ -115,6 +118,7 @@ async def test_problem_names_the_line_and_saves_nothing(user, conn):
 
 
 async def test_line_needs_a_description(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "  ", "1", "45")
     user.find("Save").click()
 
@@ -140,6 +144,7 @@ async def test_open_a_draft_to_edit(user, conn):
 
 
 async def test_save_changes_to_a_draft(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
     [number] = saved_numbers(conn)
@@ -183,6 +188,7 @@ async def test_open_a_quoted_quote_read_only(user, conn):
 
 
 async def test_list_shows_saved_quotes_newest_first(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
     user.find("New Quote").click()
@@ -233,7 +239,25 @@ async def test_open_a_quote_deleted_since_listed(user, conn):
     await user.should_see("No quotes yet")
 
 
+async def test_starts_on_the_landing_view(user):
+    await user.should_see("Pick a quote on the left, or start a new one.")
+    await user.should_not_see("Save")
+
+
+async def test_new_quote_opens_the_form(user):
+    user.find("New Quote").click()
+    await user.should_see("Add Line")
+    await user.should_not_see("Pick a quote on the left, or start a new one.")
+
+
+async def test_side_panel_stays_beside_the_quote_at_any_width(user):
+    # Quasar's default turns the panel into a pop-over below 1024 pixels.
+    [panel] = user.find(marker="side-panel").elements
+    assert panel.props["behavior"] == "desktop"
+
+
 async def test_new_quote_after_saving(user, conn):
+    user.find("New Quote").click()
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Save").click()
     user.find("New Quote").click()

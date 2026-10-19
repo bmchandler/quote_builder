@@ -29,15 +29,17 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
     """The function NiceGUI calls to build the page, using `conn`."""
 
     def root() -> None:
-        current: Quote = Quote()  # the quote shown on the right
+        current: Quote | None = None  # the quote on the right, if any
 
         # Handlers first: the list below calls open_quote as it's drawn.
-        def show(quote: Quote) -> None:
+        def show(quote: Quote | None) -> None:
             nonlocal current
             current = quote
             body.clear()
             with body:
-                if quote.status is Status.DRAFT:
+                if quote is None:
+                    landing()
+                elif quote.status is Status.DRAFT:
                     quote_editor(conn, quote, on_saved=show)
                 else:
                     quote_view(quote)
@@ -51,7 +53,11 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
                 return
             show(quote)
 
-        with ui.left_drawer(value=True, fixed=True).props("width=300 bordered"):
+        # behavior=desktop: always beside the quote. Otherwise Quasar turns
+        # it into a pop-over below 1024 pixels wide (the window is 1000).
+        with ui.left_drawer(value=True, fixed=True).props(
+            "width=300 bordered behavior=desktop"
+        ).mark("side-panel"):
             ui.label("Quote Builder").classes("text-h6")
             search = ui.input(
                 "Search", on_change=lambda: quote_list.refresh()
@@ -68,7 +74,8 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
                     for summary in summaries:
                         quote_list_item(
                             summary,
-                            selected=summary.number == current.number,
+                            selected=current is not None
+                            and summary.number == current.number,
                             on_click=open_quote,
                         )
 
@@ -76,9 +83,16 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
 
         body = ui.column().classes("w-full")
 
-        show(Quote())
+        show(None)
 
     return root
+
+
+def landing() -> None:
+    """The right side before a quote is opened."""
+    ui.label("Pick a quote on the left, or start a new one.").classes(
+        "text-grey-7"
+    )
 
 
 def quote_list_item(
