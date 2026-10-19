@@ -187,8 +187,11 @@ def test_list_quotes_last_changed_first(conn):
         status=Status.DRAFT,
         first_line="Mow lawn",
         updated_at=at(2),
+        # $45 + ($75 - 10%) + ($18.99 - $2 + 7.25% tax).
+        total_cents=4500 + 6750 + 1699 + 123,
     )
     assert summaries[1].first_line is None
+    assert summaries[1].total_cents == 0
 
 
 def test_updated_at_is_kept_in_utc_to_the_second(conn):

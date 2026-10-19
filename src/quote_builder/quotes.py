@@ -46,3 +46,4 @@ class QuoteSummary:
     status: Status
     first_line: str | None  # the first line's description; None if no lines
     updated_at: datetime
+    total_cents: int

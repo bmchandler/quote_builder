@@ -14,6 +14,7 @@ from pathlib import Path
 
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
+from quote_builder.totals import quote_totals
 
 SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
 
@@ -138,11 +139,7 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
     pattern = f"%{escaped}%"
     rows = conn.execute(
         r"""
-        SELECT number, revision, status, updated_at,
-               (SELECT description FROM line_items
-                WHERE quote_id = quotes.id
-                ORDER BY position
-                LIMIT 1) AS first_line
+        SELECT id, number, revision, status, updated_at
         FROM quotes
         WHERE number LIKE :pattern ESCAPE '\'
            OR notes LIKE :pattern ESCAPE '\'
@@ -153,16 +150,49 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
         """,
         {"pattern": pattern},
     ).fetchall()
-    return [
-        QuoteSummary(
-            number=row["number"],
-            revision=row["revision"],
-            status=Status(row["status"]),
-            first_line=row["first_line"],
-            updated_at=datetime.fromisoformat(row["updated_at"]),
+    lines = _line_items_of(conn, [row["id"] for row in rows])
+    summaries = []
+    for row in rows:
+        items = lines.get(row["id"], [])
+        summaries.append(
+            QuoteSummary(
+                number=row["number"],
+                revision=row["revision"],
+                status=Status(row["status"]),
+                first_line=items[0].description if items else None,
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+                total_cents=quote_totals(items).total_cents,
+            )
         )
-        for row in rows
-    ]
+    return summaries
+
+
+def _line_items_of(
+    conn: sqlite3.Connection, quote_ids: list[int]
+) -> dict[int, list[LineItem]]:
+    """Each quote's line items, in order, by quote id.
+
+    One query for all the quotes, rather than one per quote (the "N+1
+    queries" problem).
+    """
+    if not quote_ids:
+        return {}
+    # A placeholder per id: values never go into the SQL text itself.
+    placeholders = ", ".join("?" * len(quote_ids))
+    rows = conn.execute(
+        f"""
+        SELECT quote_id, description, quantity, unit_price_cents, tax_percent,
+               discount_cents, discount_percent
+        FROM line_items
+        WHERE quote_id IN ({placeholders})
+        ORDER BY quote_id, position
+        """,
+        quote_ids,
+    ).fetchall()
+    lines: dict[int, list[LineItem]] = {}
+    for row in rows:
+        lines.setdefault(row["quote_id"], []).append(_line_item(row))
+    return lines
 
 
 def load_quote(
@@ -179,16 +209,6 @@ def load_quote(
     ).fetchone()
     if row is None:
         return None
-    lines = conn.execute(
-        """
-        SELECT description, quantity, unit_price_cents, tax_percent,
-               discount_cents, discount_percent
-        FROM line_items
-        WHERE quote_id = ?
-        ORDER BY position
-        """,
-        (row["id"],),
-    ).fetchall()
     return Quote(
         number=row["number"],
         revision=row["revision"],
@@ -196,7 +216,7 @@ def load_quote(
         issued_on=_date(row["issued_on"]),
         valid_until=_date(row["valid_until"]),
         notes=row["notes"],
-        line_items=[_line_item(line) for line in lines],
+        line_items=_line_items_of(conn, [row["id"]]).get(row["id"], []),
     )
 
 

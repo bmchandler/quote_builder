@@ -34,6 +34,12 @@ def fill_line(user, n, description, quantity, price):
     user.find(marker=f"price-{n}").type(price)
 
 
+def text(found):
+    """The text of the one label found."""
+    [element] = found.elements
+    return element.text
+
+
 def value(found):
     """The value of the one element found."""
     [element] = found.elements
@@ -275,3 +281,93 @@ def test_short_date_is_local(monkeypatch):
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+async def test_totals_update_as_you_type(user):
+    user.find("New Quote").click()
+    fill_line(user, 1, "Trim hedges", "2.5", "30")
+    user.find(marker="discount-1").type("10%")
+    user.find(marker="tax-1").type("7.25")
+
+    # $75.00 - 10% = $67.50; 7.25% tax on that = $4.89 ($4.894).
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$67.50")
+    assert text(user.find(marker="foot-items")) == "$75.00"
+    assert text(user.find(marker="foot-discounts")) == "-$7.50"
+    assert text(user.find(marker="foot-tax")) == "$4.89"
+    assert text(user.find(marker="foot-total")) == "$72.39"
+
+
+async def test_new_quote_starts_at_zero(user):
+    user.find("New Quote").click()
+    await eventually(lambda: text(user.find(marker="foot-total")) == "$0.00")
+    assert text(user.find(marker="line-total-1")) == ""
+
+
+async def test_blank_price_still_needed_to_save(user, conn):
+    user.find("New Quote").click()
+    user.find(marker="description-1").type("Mow lawn")
+    user.find("Save").click()
+
+    await user.should_see("Line 1: An amount is needed")
+    assert saved_numbers(conn) == []
+
+
+async def test_totals_wait_for_a_line_that_doesnt_read(user):
+    user.find("New Quote").click()
+    fill_line(user, 1, "Trim hedges", "2", "lots")
+
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "—")
+    assert text(user.find(marker="foot-total")) == "—"
+
+
+async def test_discount_over_the_line_is_refused(user, conn):
+    user.find("New Quote").click()
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(marker="discount-1").type("50")
+    user.find("Save").click()
+
+    await user.should_see("Line 1: A discount can't be more than the line")
+    assert saved_numbers(conn) == []
+
+
+async def test_discount_and_tax_are_saved_and_shown_again(user, conn):
+    quote = Quote(
+        line_items=[
+            LineItem("Hedge trimmer blade", Decimal(1), 1899, tax_percent=Decimal("7.25"), discount_cents=200),
+            LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10")),
+        ]
+    )
+    saved = save_new_quote(conn, quote)
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+
+    await user.should_see(f"{saved.number} (Draft)")
+    assert value(user.find(marker="discount-1")) == "$2.00"
+    assert value(user.find(marker="tax-1")) == "7.25"
+    assert value(user.find(marker="discount-2")) == "10%"
+    assert value(user.find(marker="tax-2")) == ""
+    user.find("Save").click()
+    assert load_quote(conn, saved.number) == saved
+
+
+async def test_list_shows_each_quotes_total(user, conn):
+    saved = save_new_quote(
+        conn, Quote(line_items=[LineItem("Mow lawn", Decimal(2), 4500, discount_cents=500)])
+    )
+    await reload(user)
+    assert text(user.find(marker=f"list-total-{saved.number}")) == "$85.00"
+
+
+async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
+    quote = Quote(
+        status=Status.QUOTED,
+        line_items=[
+            LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10"), tax_percent=Decimal("7.25")),
+        ],
+    )
+    saved = save_new_quote(conn, quote)
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+
+    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, tax 7.25% = $67.50")
+    assert text(user.find(marker="foot-total")) == "$72.39"

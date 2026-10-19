@@ -65,10 +65,30 @@ taxed or not as the user sets them (decided 2026-10-17).
 
 Discounts are per line item, as an amount or a percent (decided
 2026-10-17); a line's tax is worked out on its discounted amount.
-There's no whole-quote discount.
+There's no whole-quote discount. A discount can't be more than its
+line. In the form, one Discount field takes either: `10%` is a percent,
+anything else an amount (`5`, `$5.50`); blank or zero is none. Tax %
+takes `7.25` or `7.25%`, blank for none (decided 2026-10-19).
+
+Each line is worked out to the cent on its own (totals.py): quantity ×
+unit price, less the discount, then tax on what's left, each rounded
+half up (half a cent rounds up). The quote's totals add up the lines'
+cents, so the foot always matches the lines (decided 2026-10-19).
+
+A draft's totals are worked out from its lines whenever shown, never
+stored. Once a quote is quoted, its figures are frozen (decided
+2026-10-19): each line's amount, discount, tax, and total, and the
+foot's totals are stored with it and shown from then on, so a later
+change to how totals are worked out never changes what a client was
+given. A revision starts as a draft, so it's worked out with the rules
+of the day until it's quoted and frozen in turn. Old rules aren't kept
+around to rework old quotes. Built with the step that marks a quote
+Quoted.
 
 The quote's foot shows totals: items before discounts, discounts, tax,
-and the total.
+and the total. They update as the form is typed in; a line with no
+price yet counts as nothing, and while any line doesn't read, its total
+and the foot show a dash.
 
 Quote numbers (decided 2026-10-17) are `Q-` and a random code shaped
 like a phone number, three characters then four: `Q-7KQ-M9XD`. The
@@ -150,9 +170,8 @@ and the date last saved (local time); newest first. The time saved
 is kept to the second, in UTC (decided 2026-10-19): enough to keep
 quotes in order. Search, as you
 type, matches the number, the notes, or any line's description, in any
-case. Totals join the list once they're built.
+case. Each row also shows the quote's total.
 
-Next, growing the screen, storage, and tests together in small steps:
-totals, tax, and discounts per line (the form doesn't show a line's tax
-or discount yet, so saving a draft would drop them). Clients and the
-catalog come after.
+Next, growing the screen, storage, and tests together in small steps.
+Opening another quote or New Quote drops unsaved changes without
+asking: worth a warning soon. Clients and the catalog come after.
