@@ -31,3 +31,20 @@ uv run pytest
 
 Screen tests (tests/test_app.py) use NiceGUI's simulated user, so they
 need no window or browser.
+
+## Code layout
+
+All in `src/quote_builder/`:
+
+- `app.py`: the window (NiceGUI), and `main`, the `quote-builder`
+  command.
+- `quotes.py`: quotes and line items as dataclasses.
+- `money.py`: reading and showing amounts, quantities, percents, and
+  discounts.
+- `totals.py`: what a line and a quote add up to.
+- `quote_numbers.py`: new quote numbers.
+- `storage.py`, `schema.sql`: the SQLite database.
+- `data_folder.py`: where the database lives.
+
+Tests in `tests/` mirror these files.
+

@@ -176,37 +176,43 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
 ## Status and plan
 
-Built: quote number generation (quote_numbers.py); saving a new quote
-with its line items, and loading it back (storage.py); a first, bare
-quote screen in the native window (app.py): lines of description,
-quantity, and unit price, notes, Save, and opening a saved quote by
-number from the list, with tests driving it through NiceGUI's
-simulated user. A draft opens in the form, and Save updates it in
-place (its lines replaced); any other status opens read-only.
+Built (as of 2026-10-19), each with tests:
 
-The quote list (decided 2026-10-19) sits down the left side, always
-shown beside the quote at any window width (never a pop-over), with
-the open quote on the right and highlighted in the list. Before a
-quote is opened, the right side asks to pick one or start a new one;
-New Quote opens a blank form there, and clicking a quote in the list
-opens it there.
+- Quote numbers (quote_numbers.py).
+- SQLite storage (schema.sql, storage.py): saving a new quote with its
+  line items, saving changes to a draft (lines replaced), loading one
+  back, and listing quotes with search.
+- Totals (totals.py): per-line discount and tax, the quote's foot.
+- The screen (app.py), in the native window:
+  - The quote list down the left side, always shown beside the quote
+    at any window width (never a pop-over; decided 2026-10-19). Each
+    row shows the number and status, the first line's description, the
+    date last saved (local time), and the total; newest first, the open
+    quote highlighted. The time saved is kept to the second, in UTC
+    (decided 2026-10-19): enough to keep quotes in order. Search, as
+    you type, matches the number, the notes, or any line's description,
+    in any case.
+  - On the right: a landing message until a quote is picked; New Quote
+    opens a blank form, and clicking a quote in the list opens it. A
+    draft opens in the form (description, quantity, unit price,
+    discount, tax %, and notes, with totals updating as you type); Save
+    saves it. Any other status opens read-only.
+  - Leaving a form with unsaved changes asks first (decided
+    2026-10-19): New Quote, or opening another quote from the list,
+    shows "Discard unsaved changes?" with Keep Editing and Discard; Esc
+    or a click outside keeps editing. Changes means the form differs
+    from when it was opened or last saved, so a change undone by hand
+    doesn't count. Clicking the quote already open does nothing.
+    Closing the window doesn't ask: that waits for NiceGUI to pass on
+    pywebview's closing event, which it doesn't yet (decided
+    2026-10-19; no workaround). Until then, the README tells users to
+    save before closing.
 
-Leaving a form with unsaved changes asks first (decided 2026-10-19):
-New Quote, or opening another quote from the list, shows "Discard
-unsaved changes?" with Keep Editing and Discard; Esc or a click outside
-keeps editing. Changes means the form differs from when it was opened
-or last saved, so a change undone by hand doesn't count. Clicking the
-quote already open does nothing. Closing the window doesn't ask: that
-waits for NiceGUI to pass on pywebview's closing event, which it
-doesn't yet (decided 2026-10-19; no workaround). Until then, the README
-tells users to save before closing.
-Each row shows the number and status, the first line's description,
-and the date last saved (local time); newest first. The time saved
-is kept to the second, in UTC (decided 2026-10-19): enough to keep
-quotes in order. Search, as you
-type, matches the number, the notes, or any line's description, in any
-case. Each row also shows the quote's total.
+Nothing can change a quote's status yet: only drafts are made.
 
 Next, growing the screen, storage, and tests together in small steps:
-marking a quote Quoted, with its figures frozen. Clients and the
-catalog come after.
+
+1. Marking a draft Quoted (date issued, valid-until), with its figures
+   frozen (see Data).
+2. Revisions, expiry, and the extension log.
+3. The business profile and tax rates, clients, then the catalog.
