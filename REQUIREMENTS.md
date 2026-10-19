@@ -135,9 +135,18 @@ Built: quote number generation (quote_numbers.py); saving a new quote
 with its line items, and loading it back (storage.py); a first, bare
 quote screen in the native window (app.py): lines of description,
 quantity, and unit price, notes, Save, and opening a saved quote by
-number (typed in any case), with tests driving it through NiceGUI's
+number from the list, with tests driving it through NiceGUI's
 simulated user. A draft opens in the form, and Save updates it in
 place (its lines replaced); any other status opens read-only.
+
+The quote list (decided 2026-10-19) sits down the left side, always
+shown, with the open quote on the right and highlighted in the list.
+Each row shows the number and status, the first line's description,
+and the date last saved (local time); newest first. The time saved
+is kept to the second, in UTC (decided 2026-10-19): enough to keep
+quotes in order. Search, as you
+type, matches the number, the notes, or any line's description, in any
+case. Totals join the list once they're built.
 
 Next, growing the screen, storage, and tests together in small steps:
 totals, tax, and discounts per line (the form doesn't show a line's tax

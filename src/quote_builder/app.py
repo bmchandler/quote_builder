@@ -1,4 +1,4 @@
-"""The app's window: start a quote, save it, and open a saved one.
+"""The app's window: a list of quotes on the left, one quote on the right.
 
 A first, bare layout: enough to wire the screen to storage.
 """
@@ -6,13 +6,20 @@ A first, bare layout: enough to wire the screen to storage.
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
 
 from nicegui import ui
 
 from quote_builder.data_folder import data_folder
 from quote_builder.money import format_money, parse_money, parse_quantity
-from quote_builder.quotes import LineItem, Quote, Status
-from quote_builder.storage import connect, load_quote, save_draft, save_new_quote
+from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
+from quote_builder.storage import (
+    connect,
+    list_quotes,
+    load_quote,
+    save_draft,
+    save_new_quote,
+)
 
 # One line's row and its description, quantity, and unit price inputs.
 LineRow = tuple[ui.row, ui.input, ui.input, ui.input]
@@ -22,32 +29,78 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
     """The function NiceGUI calls to build the page, using `conn`."""
 
     def root() -> None:
-        ui.label("Quote Builder").classes("text-h5")
-        with ui.row().classes("items-end"):
-            number = ui.input("Quote number").mark("open-number")
-            ui.button("Open", on_click=lambda: open_quote(number.value))
-            ui.button("New Quote", on_click=lambda: show(Quote()))
-        body = ui.column().classes("w-full")
+        current: Quote = Quote()  # the quote shown on the right
 
+        # Handlers first: the list below calls open_quote as it's drawn.
         def show(quote: Quote) -> None:
+            nonlocal current
+            current = quote
             body.clear()
             with body:
                 if quote.status is Status.DRAFT:
                     quote_editor(conn, quote, on_saved=show)
                 else:
                     quote_view(quote)
+            quote_list.refresh()
 
-        def open_quote(text: str) -> None:
-            wanted = text.strip().upper()
-            quote = load_quote(conn, wanted)
-            if quote is None:
-                ui.notify(f"No quote {wanted}", type="warning")
+        def open_quote(number: str) -> None:
+            quote = load_quote(conn, number)
+            if quote is None:  # deleted since the list was drawn
+                ui.notify(f"No quote {number}", type="warning")
+                quote_list.refresh()
                 return
             show(quote)
+
+        with ui.left_drawer(value=True, fixed=True).props("width=300 bordered"):
+            ui.label("Quote Builder").classes("text-h6")
+            search = ui.input(
+                "Search", on_change=lambda: quote_list.refresh()
+            ).props("clearable").classes("w-full").mark("search")
+            ui.button("New Quote", icon="add", on_click=lambda: show(Quote()))
+
+            @ui.refreshable
+            def quote_list() -> None:
+                summaries = list_quotes(conn, search.value or "")
+                if not summaries:
+                    ui.label("No quotes found" if search.value else "No quotes yet")
+                    return
+                with ui.list().props("separator").classes("w-full"):
+                    for summary in summaries:
+                        quote_list_item(
+                            summary,
+                            selected=summary.number == current.number,
+                            on_click=open_quote,
+                        )
+
+            quote_list()
+
+        body = ui.column().classes("w-full")
 
         show(Quote())
 
     return root
+
+
+def quote_list_item(
+    summary: QuoteSummary, selected: bool, on_click: Callable[[str], None]
+) -> None:
+    """One quote in the side list: number, status, first line, date."""
+    item = ui.item(on_click=lambda: on_click(summary.number))
+    item.props("clickable").mark(f"quote-{summary.number}")
+    if selected:
+        item.props("active")
+    with item:
+        with ui.item_section():
+            ui.item_label(f"{summary.number} · {summary.status}")
+            ui.item_label(summary.first_line or "No lines").props("caption lines=1")
+        with ui.item_section().props("side top"):
+            ui.item_label(short_date(summary.updated_at)).props("caption")
+
+
+def short_date(moment: datetime) -> str:
+    """`Oct 19, 2026`, in local time."""
+    local = moment.astimezone()
+    return f"{local:%b} {local.day}, {local.year}"
 
 
 def quote_editor(

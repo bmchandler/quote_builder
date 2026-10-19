@@ -1,7 +1,7 @@
 """Quotes and their line items, as the app works with them."""
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -35,3 +35,14 @@ class Quote:
     valid_until: date | None = None
     notes: str = ""
     line_items: list[LineItem] = field(default_factory=list)
+
+
+@dataclass
+class QuoteSummary:
+    """What the list of quotes shows of one."""
+
+    number: str
+    revision: int
+    status: Status
+    first_line: str | None  # the first line's description; None if no lines
+    updated_at: datetime

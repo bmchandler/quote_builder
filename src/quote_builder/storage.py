@@ -7,13 +7,13 @@ the dataclasses in quotes.py.
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from importlib.resources import files
 from pathlib import Path
 
 from quote_builder.quote_numbers import new_quote_number
-from quote_builder.quotes import LineItem, Quote, Status
+from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
 
 SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
 
@@ -47,12 +47,15 @@ def save_new_quote(
     conn: sqlite3.Connection,
     quote: Quote,
     draw_number: Callable[[], str] = new_quote_number,
+    now: datetime | None = None,
 ) -> Quote:
     """Save a quote not yet in the database, giving it a new number.
 
     Returns a copy with the number; `quote` itself is left as it was.
     The quote and its line items are saved together or not at all.
+    `now` (the time saved; the current time if None) is for tests.
     """
+    updated_at = _timestamp(now)
     with conn:
         for _ in range(MAX_NUMBER_TRIES):
             number = draw_number()
@@ -61,8 +64,9 @@ def save_new_quote(
             row = conn.execute(
                 """
                 INSERT INTO quotes
-                    (number, revision, status, issued_on, valid_until, notes)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (number, revision, status, issued_on, valid_until, notes,
+                     updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (number, revision) DO NOTHING
                 RETURNING id
                 """,
@@ -73,6 +77,7 @@ def save_new_quote(
                     _iso(quote.issued_on),
                     _iso(quote.valid_until),
                     quote.notes,
+                    updated_at,
                 ),
             ).fetchone()
             if row is not None:
@@ -83,11 +88,14 @@ def save_new_quote(
     return replace(quote, number=number)
 
 
-def save_draft(conn: sqlite3.Connection, quote: Quote) -> None:
+def save_draft(
+    conn: sqlite3.Connection, quote: Quote, now: datetime | None = None
+) -> None:
     """Save changes to a draft already in the database.
 
     Raises NotADraft if no draft has the quote's number and revision: once
-    quoted, a quote changes only by a new revision.
+    quoted, a quote changes only by a new revision. `now` as for
+    save_new_quote.
     """
     with conn:
         # The status check is in the WHERE clause, so checking and changing
@@ -95,7 +103,7 @@ def save_draft(conn: sqlite3.Connection, quote: Quote) -> None:
         row = conn.execute(
             """
             UPDATE quotes
-            SET issued_on = ?, valid_until = ?, notes = ?
+            SET issued_on = ?, valid_until = ?, notes = ?, updated_at = ?
             WHERE number = ? AND revision = ? AND status = 'Draft'
             RETURNING id
             """,
@@ -103,6 +111,7 @@ def save_draft(conn: sqlite3.Connection, quote: Quote) -> None:
                 _iso(quote.issued_on),
                 _iso(quote.valid_until),
                 quote.notes,
+                _timestamp(now),
                 quote.number,
                 quote.revision,
             ),
@@ -113,6 +122,47 @@ def save_draft(conn: sqlite3.Connection, quote: Quote) -> None:
         # nothing refers to a line's id.
         conn.execute("DELETE FROM line_items WHERE quote_id = ?", (row["id"],))
         _insert_line_items(conn, row["id"], quote.line_items)
+
+
+def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary]:
+    """Quotes, last changed first, matching `search` if given.
+
+    A quote matches if its number, its notes, or any line's description
+    holds the search text, in any case.
+    """
+    # In LIKE, % and _ are wildcards: escape them (and the escape
+    # character itself) so they match only themselves.
+    escaped = (
+        search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    pattern = f"%{escaped}%"
+    rows = conn.execute(
+        r"""
+        SELECT number, revision, status, updated_at,
+               (SELECT description FROM line_items
+                WHERE quote_id = quotes.id
+                ORDER BY position
+                LIMIT 1) AS first_line
+        FROM quotes
+        WHERE number LIKE :pattern ESCAPE '\'
+           OR notes LIKE :pattern ESCAPE '\'
+           OR EXISTS (SELECT 1 FROM line_items
+                      WHERE quote_id = quotes.id
+                        AND description LIKE :pattern ESCAPE '\')
+        ORDER BY updated_at DESC, id DESC
+        """,
+        {"pattern": pattern},
+    ).fetchall()
+    return [
+        QuoteSummary(
+            number=row["number"],
+            revision=row["revision"],
+            status=Status(row["status"]),
+            first_line=row["first_line"],
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+        for row in rows
+    ]
 
 
 def load_quote(
@@ -189,6 +239,17 @@ def _line_item(row: sqlite3.Row) -> LineItem:
 
 # Conversions done by hand rather than with sqlite3.register_adapter,
 # which would change every connection in the process.
+
+
+def _timestamp(now: datetime | None) -> str:
+    """`now` (the current time if None) in UTC, as ISO 8601 text.
+
+    Always to the second and in UTC, so every value has the same shape
+    and sorting the text sorts by time. (Plain isoformat() adds a
+    fraction only when there is one, which would break that.)
+    """
+    moment = (now or datetime.now(UTC)).astimezone(UTC)
+    return moment.isoformat(timespec="seconds")
 
 
 def _iso(value: date | None) -> str | None:

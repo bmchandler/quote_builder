@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     issued_on   TEXT,
     valid_until TEXT,
     notes       TEXT    NOT NULL DEFAULT '',
+    -- When last saved: UTC, ISO 8601 with the offset, shown in local time.
+    updated_at  TEXT    NOT NULL,
     UNIQUE (number, revision)
 ) STRICT;
 
