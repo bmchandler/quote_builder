@@ -5,37 +5,17 @@ then tax on what's left. The quote's totals add up the lines' cents, so
 the foot of a quote always matches its lines. Rounding is half up
 (half a cent rounds up), as people expect on a bill, not Python's
 default half even (banker's rounding).
+
+Once quoted, a quote's figures are frozen (stored with it) and shown
+from then on, so a later change here never changes what a client was
+given.
 """
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
-from quote_builder.quotes import LineItem
-
-
-@dataclass(frozen=True)
-class LineTotals:
-    amount_cents: int  # quantity × unit price
-    discount_cents: int
-    tax_cents: int
-
-    @property
-    def net_cents(self) -> int:
-        """The amount after the discount, before tax."""
-        return self.amount_cents - self.discount_cents
-
-    @property
-    def total_cents(self) -> int:
-        return self.net_cents + self.tax_cents
-
-
-@dataclass(frozen=True)
-class QuoteTotals:
-    items_cents: int  # the lines' amounts, before discounts
-    discount_cents: int
-    tax_cents: int
-    total_cents: int
+from quote_builder.quotes import LineItem, LineTotals, Quote, QuoteTotals
 
 
 def line_totals(item: LineItem) -> LineTotals:
@@ -59,6 +39,25 @@ def quote_totals(items: Iterable[LineItem]) -> QuoteTotals:
         tax_cents=sum(line.tax_cents for line in lines),
         total_cents=sum(line.total_cents for line in lines),
     )
+
+
+def freeze(quote: Quote) -> Quote:
+    """A copy with each line's figures and the foot's stored on it.
+
+    Raises ValueError if a discount is more than its line.
+    """
+    lines = [replace(item, frozen=line_totals(item)) for item in quote.line_items]
+    return replace(quote, line_items=lines, frozen=quote_totals(quote.line_items))
+
+
+def shown_line_totals(item: LineItem) -> LineTotals:
+    """The line's frozen figures once quoted, else worked out now."""
+    return item.frozen or line_totals(item)
+
+
+def shown_quote_totals(quote: Quote) -> QuoteTotals:
+    """The quote's frozen foot once quoted, else worked out now."""
+    return quote.frozen or quote_totals(quote.line_items)
 
 
 def _whole_cents(cents: Decimal | int) -> int:

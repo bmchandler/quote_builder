@@ -2,8 +2,14 @@ from decimal import Decimal
 
 import pytest
 
-from quote_builder.quotes import LineItem
-from quote_builder.totals import LineTotals, QuoteTotals, line_totals, quote_totals
+from quote_builder.quotes import LineItem, LineTotals, Quote, QuoteTotals
+from quote_builder.totals import (
+    freeze,
+    line_totals,
+    quote_totals,
+    shown_line_totals,
+    shown_quote_totals,
+)
 
 
 def line(quantity, price_cents, **extra):
@@ -72,3 +78,33 @@ def test_quote_totals_add_up_the_lines():
 
 def test_quote_with_no_lines():
     assert quote_totals([]) == QuoteTotals(0, 0, 0, 0)
+
+
+def test_freeze_stores_each_lines_figures_and_the_foot():
+    quote = Quote(
+        line_items=[
+            line("1", 4500),
+            line("1", 10000, discount_percent=Decimal("10"), tax_percent=Decimal("7.25")),
+        ]
+    )
+    frozen = freeze(quote)
+    assert [item.frozen for item in frozen.line_items] == [
+        LineTotals(4500, 0, 0),
+        LineTotals(10000, 1000, 653),
+    ]
+    assert frozen.frozen == QuoteTotals(14500, 1000, 653, 14153)
+    assert quote.frozen is None  # a copy; the quote itself is left alone
+
+
+def test_shown_totals_are_frozen_once_quoted():
+    # Frozen figures that no longer match the lines, as after a rule change.
+    item = line("1", 4500, frozen=LineTotals(4000, 0, 0))
+    quote = Quote(line_items=[item], frozen=QuoteTotals(4000, 0, 0, 4000))
+    assert shown_line_totals(item).amount_cents == 4000
+    assert shown_quote_totals(quote).total_cents == 4000
+
+
+def test_shown_totals_are_worked_out_for_a_draft():
+    item = line("1", 4500)
+    assert shown_line_totals(item).amount_cents == 4500
+    assert shown_quote_totals(Quote(line_items=[item])).total_cents == 4500

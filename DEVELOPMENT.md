@@ -41,6 +41,7 @@ All in `src/quote_builder/`:
 - `quotes.py`: quotes and line items as dataclasses.
 - `money.py`: reading and showing amounts, quantities, percents, and
   discounts.
+- `dates.py`: reading and showing dates, and the default valid-until.
 - `totals.py`: what a line and a quote add up to.
 - `quote_numbers.py`: new quote numbers.
 - `storage.py`, `schema.sql`: the SQLite database.

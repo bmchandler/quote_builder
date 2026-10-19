@@ -6,11 +6,12 @@ A first, bare layout, growing a step at a time.
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from nicegui import ui
 
 from quote_builder.data_folder import data_folder
+from quote_builder.dates import default_valid_until, format_date, parse_date
 from quote_builder.money import (
     format_discount,
     format_money,
@@ -20,15 +21,21 @@ from quote_builder.money import (
     parse_percent,
     parse_quantity,
 )
-from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
+from quote_builder.quotes import LineItem, Quote, QuoteSummary, QuoteTotals, Status
 from quote_builder.storage import (
     connect,
     list_quotes,
     load_quote,
+    mark_quoted,
     save_draft,
     save_new_quote,
 )
-from quote_builder.totals import QuoteTotals, line_totals, quote_totals
+from quote_builder.totals import (
+    line_totals,
+    quote_totals,
+    shown_line_totals,
+    shown_quote_totals,
+)
 
 
 def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
@@ -158,8 +165,7 @@ def quote_list_item(
 
 def short_date(moment: datetime) -> str:
     """`Oct 19, 2026`, in local time."""
-    local = moment.astimezone()
-    return f"{local:%b} {local.day}, {local.year}"
+    return format_date(moment.astimezone().date())
 
 
 class LineInputs:
@@ -280,13 +286,19 @@ def quote_editor(
     foot()
     notes = ui.textarea("Notes", value=quote.notes).classes("w-96")
 
-    def save() -> None:
+    def changed_quote() -> Quote | None:
+        """The quote as the form has it, or None after showing a problem."""
         try:
             items = [_checked_item(n, line) for n, line in enumerate(lines, 1)]
         except ValueError as problem:
             ui.notify(str(problem), type="negative")
+            return None
+        return replace(quote, notes=notes.value.strip(), line_items=items)
+
+    def save() -> None:
+        changed = changed_quote()
+        if changed is None:
             return
-        changed = replace(quote, notes=notes.value.strip(), line_items=items)
         if changed.number is None:
             saved = save_new_quote(conn, changed)
         else:
@@ -295,7 +307,25 @@ def quote_editor(
         ui.notify(f"Saved {saved.number}")
         on_saved(saved)
 
-    ui.button("Save", on_click=save)
+    async def quote_it() -> None:
+        changed = changed_quote()
+        if changed is None:
+            return
+        if not changed.line_items:
+            ui.notify("Add a line before marking it quoted", type="negative")
+            return
+        name = changed.number or "this new quote"
+        dates = await ask_quoted_dates(name, date.today())
+        if dates is None:
+            return
+        # Saves the form's changes too, in the same transaction.
+        quoted = mark_quoted(conn, changed, *dates)
+        ui.notify(f"{quoted.number} marked quoted")
+        on_saved(quoted)
+
+    with ui.row():
+        ui.button("Save", on_click=save)
+        ui.button("Mark Quoted", on_click=quote_it).props("outline")
     for item in quote.line_items:
         add_line(item)
     if not quote.line_items:
@@ -321,6 +351,53 @@ def quote_editor(
     return lambda: form_state() != opened_with
 
 
+async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
+    """Ask for the issued and valid-until dates to mark `name` quoted.
+
+    None if the user cancels.
+    """
+    with ui.dialog() as dialog, ui.card():
+        ui.label(f"Mark {name} quoted?").classes("text-h6")
+        issued = date_input("Issued", today, "issued-on")
+        valid = date_input("Valid until", default_valid_until(today), "valid-until")
+        ui.label("It can't be edited after this; changes become revisions.")
+
+        def confirm() -> None:
+            try:
+                issued_on = parse_date(issued.value)
+                valid_until = parse_date(valid.value)
+            except ValueError as problem:
+                ui.notify(str(problem), type="negative")
+                return
+            if valid_until < issued_on:
+                ui.notify(
+                    "Valid until can't be before the issued date", type="negative"
+                )
+                return
+            dialog.submit((issued_on, valid_until))
+
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button("Mark Quoted", on_click=confirm).mark("confirm-quoted")
+    # Esc or a click outside closes it with None, as Cancel does.
+    answer = await dialog
+    dialog.delete()
+    return answer
+
+
+def date_input(label: str, value: date, marker: str) -> ui.input:
+    """A date as text (`2026-11-18`), with a calendar to pick it from."""
+    field = ui.input(label, value=value.isoformat()).mark(marker)
+    with field:
+        # no-parent-event: only the icon opens the calendar, so typing in
+        # the field doesn't. The calendar's YYYY-MM-DD matches parse_date.
+        with ui.menu().props("no-parent-event") as menu:
+            ui.date(on_change=menu.close).bind_value(field)
+    with field.add_slot("append"):
+        ui.icon("edit_calendar").on("click", menu.open).classes("cursor-pointer")
+    return field
+
+
 def totals_foot(totals: QuoteTotals | None) -> None:
     """The quote's totals, or dashes while a line doesn't read."""
 
@@ -342,7 +419,13 @@ def totals_foot(totals: QuoteTotals | None) -> None:
 
 def quote_view(quote: Quote) -> None:
     """A quote that's no longer a draft, read-only."""
-    ui.label(f"{quote.number} ({quote.status})").classes("text-h6")
+    ui.label(f"{quote.number} ({quote.status})").classes("text-h6").mark("heading")
+    if quote.issued_on and quote.valid_until:
+        ui.label(
+            f"Issued {format_date(quote.issued_on)} · "
+            f"valid until {format_date(quote.valid_until)}"
+        ).mark("dates")
+    # A quoted quote shows its frozen figures, not ones worked out again.
     for item in quote.line_items:
         text = (
             f"{item.description}: {item.quantity} × "
@@ -352,9 +435,9 @@ def quote_view(quote: Quote) -> None:
             text += f", less {discount}"
         if item.tax_percent:
             text += f", tax {item.tax_percent}%"
-        text += f" = {format_money(line_totals(item).net_cents)}"
+        text += f" = {format_money(shown_line_totals(item).net_cents)}"
         ui.label(text)
-    totals_foot(quote_totals(quote.line_items))
+    totals_foot(shown_quote_totals(quote))
     if quote.notes:
         ui.label(quote.notes)
 

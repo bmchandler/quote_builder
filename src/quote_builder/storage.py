@@ -13,8 +13,15 @@ from importlib.resources import files
 from pathlib import Path
 
 from quote_builder.quote_numbers import new_quote_number
-from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
-from quote_builder.totals import quote_totals
+from quote_builder.quotes import (
+    LineItem,
+    LineTotals,
+    Quote,
+    QuoteSummary,
+    QuoteTotals,
+    Status,
+)
+from quote_builder.totals import freeze, quote_totals
 
 SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
 
@@ -66,20 +73,15 @@ def save_new_quote(
                 """
                 INSERT INTO quotes
                     (number, revision, status, issued_on, valid_until, notes,
-                     updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     updated_at, frozen_items_cents, frozen_discount_cents,
+                     frozen_tax_cents, frozen_total_cents)
+                VALUES (:number, :revision, :status, :issued_on, :valid_until,
+                        :notes, :updated_at, :items_cents, :discount_cents,
+                        :tax_cents, :total_cents)
                 ON CONFLICT (number, revision) DO NOTHING
                 RETURNING id
                 """,
-                (
-                    number,
-                    quote.revision,
-                    quote.status,
-                    _iso(quote.issued_on),
-                    _iso(quote.valid_until),
-                    quote.notes,
-                    updated_at,
-                ),
+                _quote_values(quote, number, updated_at),
             ).fetchone()
             if row is not None:
                 break
@@ -99,30 +101,79 @@ def save_draft(
     save_new_quote.
     """
     with conn:
-        # The status check is in the WHERE clause, so checking and changing
-        # are one step: no window for the status to change in between.
-        row = conn.execute(
-            """
-            UPDATE quotes
-            SET issued_on = ?, valid_until = ?, notes = ?, updated_at = ?
-            WHERE number = ? AND revision = ? AND status = 'Draft'
-            RETURNING id
-            """,
-            (
-                _iso(quote.issued_on),
-                _iso(quote.valid_until),
-                quote.notes,
-                _timestamp(now),
-                quote.number,
-                quote.revision,
-            ),
-        ).fetchone()
-        if row is None:
-            raise NotADraft(f"{quote.number} isn't a draft")
-        # Replace the lines rather than matching old to new: simpler, and
-        # nothing refers to a line's id.
-        conn.execute("DELETE FROM line_items WHERE quote_id = ?", (row["id"],))
-        _insert_line_items(conn, row["id"], quote.line_items)
+        _overwrite_draft(conn, quote, now)
+
+
+def mark_quoted(
+    conn: sqlite3.Connection,
+    quote: Quote,
+    issued_on: date,
+    valid_until: date,
+    draw_number: Callable[[], str] = new_quote_number,
+    now: datetime | None = None,
+) -> Quote:
+    """Save a draft, new or saved, as Quoted, with its figures frozen.
+
+    Returns the quoted copy (with its number, if new). The draft's
+    changes and the new status are saved together or not at all. Raises
+    NotADraft as save_draft does; `draw_number` and `now` as for
+    save_new_quote.
+    """
+    quoted = freeze(
+        replace(
+            quote, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
+        )
+    )
+    if quoted.number is None:
+        return save_new_quote(conn, quoted, draw_number, now)
+    with conn:
+        _overwrite_draft(conn, quoted, now)
+    return quoted
+
+
+def _overwrite_draft(
+    conn: sqlite3.Connection, quote: Quote, now: datetime | None
+) -> None:
+    """Write `quote` over its saved draft, inside the caller's transaction."""
+    # The status check is in the WHERE clause, so checking and changing
+    # are one step: no window for the status to change in between.
+    row = conn.execute(
+        """
+        UPDATE quotes
+        SET status = :status, issued_on = :issued_on,
+            valid_until = :valid_until, notes = :notes,
+            updated_at = :updated_at, frozen_items_cents = :items_cents,
+            frozen_discount_cents = :discount_cents,
+            frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents
+        WHERE number = :number AND revision = :revision AND status = 'Draft'
+        RETURNING id
+        """,
+        _quote_values(quote, quote.number, _timestamp(now)),
+    ).fetchone()
+    if row is None:
+        raise NotADraft(f"{quote.number} isn't a draft")
+    # Replace the lines rather than matching old to new: simpler, and
+    # nothing refers to a line's id.
+    conn.execute("DELETE FROM line_items WHERE quote_id = ?", (row["id"],))
+    _insert_line_items(conn, row["id"], quote.line_items)
+
+
+def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
+    """The quote's columns, by name, for INSERT and UPDATE."""
+    frozen = quote.frozen
+    return {
+        "number": number,
+        "revision": quote.revision,
+        "status": quote.status,
+        "issued_on": _iso(quote.issued_on),
+        "valid_until": _iso(quote.valid_until),
+        "notes": quote.notes,
+        "updated_at": updated_at,
+        "items_cents": frozen.items_cents if frozen else None,
+        "discount_cents": frozen.discount_cents if frozen else None,
+        "tax_cents": frozen.tax_cents if frozen else None,
+        "total_cents": frozen.total_cents if frozen else None,
+    }
 
 
 def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary]:
@@ -139,7 +190,7 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
     pattern = f"%{escaped}%"
     rows = conn.execute(
         r"""
-        SELECT id, number, revision, status, updated_at
+        SELECT id, number, revision, status, updated_at, frozen_total_cents
         FROM quotes
         WHERE number LIKE :pattern ESCAPE '\'
            OR notes LIKE :pattern ESCAPE '\'
@@ -161,7 +212,11 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
                 status=Status(row["status"]),
                 first_line=items[0].description if items else None,
                 updated_at=datetime.fromisoformat(row["updated_at"]),
-                total_cents=quote_totals(items).total_cents,
+                total_cents=(
+                    row["frozen_total_cents"]
+                    if row["frozen_total_cents"] is not None
+                    else quote_totals(items).total_cents
+                ),
             )
         )
     return summaries
@@ -182,7 +237,8 @@ def _line_items_of(
     rows = conn.execute(
         f"""
         SELECT quote_id, description, quantity, unit_price_cents, tax_percent,
-               discount_cents, discount_percent
+               discount_cents, discount_percent, frozen_amount_cents,
+               frozen_discount_cents, frozen_tax_cents
         FROM line_items
         WHERE quote_id IN ({placeholders})
         ORDER BY quote_id, position
@@ -201,7 +257,9 @@ def load_quote(
     """The quote with this number and revision, or None if there's none."""
     row = conn.execute(
         """
-        SELECT id, number, revision, status, issued_on, valid_until, notes
+        SELECT id, number, revision, status, issued_on, valid_until, notes,
+               frozen_items_cents, frozen_discount_cents, frozen_tax_cents,
+               frozen_total_cents
         FROM quotes
         WHERE number = ? AND revision = ?
         """,
@@ -217,6 +275,16 @@ def load_quote(
         valid_until=_date(row["valid_until"]),
         notes=row["notes"],
         line_items=_line_items_of(conn, [row["id"]]).get(row["id"], []),
+        frozen=(
+            None
+            if row["frozen_total_cents"] is None
+            else QuoteTotals(
+                items_cents=row["frozen_items_cents"],
+                discount_cents=row["frozen_discount_cents"],
+                tax_cents=row["frozen_tax_cents"],
+                total_cents=row["frozen_total_cents"],
+            )
+        ),
     )
 
 
@@ -227,8 +295,9 @@ def _insert_line_items(
         """
         INSERT INTO line_items
             (quote_id, position, description, quantity, unit_price_cents,
-             tax_percent, discount_cents, discount_percent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             tax_percent, discount_cents, discount_percent,
+             frozen_amount_cents, frozen_discount_cents, frozen_tax_cents)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -240,6 +309,9 @@ def _insert_line_items(
                 str(item.tax_percent),
                 item.discount_cents,
                 _text(item.discount_percent),
+                item.frozen.amount_cents if item.frozen else None,
+                item.frozen.discount_cents if item.frozen else None,
+                item.frozen.tax_cents if item.frozen else None,
             )
             for position, item in enumerate(line_items)
         ],
@@ -254,6 +326,15 @@ def _line_item(row: sqlite3.Row) -> LineItem:
         tax_percent=Decimal(row["tax_percent"]),
         discount_cents=row["discount_cents"],
         discount_percent=_decimal(row["discount_percent"]),
+        frozen=(
+            None
+            if row["frozen_amount_cents"] is None
+            else LineTotals(
+                amount_cents=row["frozen_amount_cents"],
+                discount_cents=row["frozen_discount_cents"],
+                tax_cents=row["frozen_tax_cents"],
+            )
+        ),
     )
 
 

@@ -5,7 +5,14 @@ from decimal import Decimal
 
 import pytest
 
-from quote_builder.quotes import LineItem, Quote, QuoteSummary, Status
+from quote_builder.quotes import (
+    LineItem,
+    LineTotals,
+    Quote,
+    QuoteSummary,
+    QuoteTotals,
+    Status,
+)
 from quote_builder.storage import (
     MAX_NUMBER_TRIES,
     NoFreeQuoteNumber,
@@ -13,6 +20,7 @@ from quote_builder.storage import (
     connect,
     list_quotes,
     load_quote,
+    mark_quoted,
     save_draft,
     save_new_quote,
 )
@@ -141,9 +149,13 @@ def test_save_draft_replaces_its_fields_and_lines(conn):
     assert count == 1
 
 
+ISSUED = date(2026, 10, 19)
+VALID_UNTIL = date(2026, 11, 18)
+
+
 def test_save_draft_refuses_a_quote_no_longer_a_draft(conn):
-    saved = save_new_quote(
-        conn, replace(lawn_quote(), status=Status.QUOTED), numbers("Q-7KQ-M9XD")
+    saved = mark_quoted(
+        conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
     )
     with pytest.raises(NotADraft):
         save_draft(conn, replace(saved, notes="Changed"))
@@ -227,3 +239,79 @@ def test_search_wildcards_match_only_themselves(conn, search):
         conn, Quote(notes="10% off, path_1\\2"), numbers("Q-222-2222"), now=at(1)
     )
     assert [s.number for s in list_quotes(conn, search)] == ["Q-222-2222"]
+
+
+# $45 + ($75 - 10%) + ($18.99 - $2 + 7.25% tax), as in lawn_quote.
+LAWN_TOTALS = QuoteTotals(
+    items_cents=4500 + 7500 + 1899,
+    discount_cents=750 + 200,
+    tax_cents=123,
+    total_cents=4500 + 6750 + 1699 + 123,
+)
+
+
+def test_mark_a_new_draft_quoted(conn):
+    quoted = mark_quoted(
+        conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+    )
+    assert quoted.number == "Q-7KQ-M9XD"
+    assert quoted.status is Status.QUOTED
+    assert (quoted.issued_on, quoted.valid_until) == (ISSUED, VALID_UNTIL)
+    assert quoted.frozen == LAWN_TOTALS
+    assert quoted.line_items[2].frozen == LineTotals(1899, 200, 123)
+    assert load_quote(conn, "Q-7KQ-M9XD") == quoted
+
+
+def test_mark_a_saved_draft_quoted_with_its_changes(conn):
+    saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
+    changed = replace(saved, notes="Back yard only.")
+    quoted = mark_quoted(conn, changed, ISSUED, VALID_UNTIL)
+    assert quoted.notes == "Back yard only."
+    assert load_quote(conn, "Q-7KQ-M9XD") == quoted
+    assert [s.number for s in list_quotes(conn)] == ["Q-7KQ-M9XD"]
+
+
+def test_mark_quoted_leaves_the_given_quote_alone(conn):
+    quote = lawn_quote()
+    mark_quoted(conn, quote, ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    assert (quote.number, quote.status, quote.frozen) == (None, Status.DRAFT, None)
+
+
+def test_quoted_quote_cant_be_marked_quoted_again(conn):
+    quoted = mark_quoted(
+        conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+    )
+    with pytest.raises(NotADraft):
+        mark_quoted(conn, quoted, date(2026, 12, 1), date(2026, 12, 31))
+    assert load_quote(conn, "Q-7KQ-M9XD") == quoted
+
+
+def test_frozen_figures_are_shown_not_worked_out_again(conn):
+    mark_quoted(conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    # As if the rules for working out totals had changed since.
+    conn.execute("UPDATE quotes SET frozen_total_cents = 1")
+    conn.execute("UPDATE line_items SET frozen_tax_cents = 2")
+    conn.commit()
+    quote = load_quote(conn, "Q-7KQ-M9XD")
+    assert quote.frozen.total_cents == 1
+    assert {item.frozen.tax_cents for item in quote.line_items} == {2}
+    assert list_quotes(conn)[0].total_cents == 1
+
+
+def test_quoted_needs_its_frozen_totals(conn):
+    # The database itself refuses a quoted quote without them.
+    with pytest.raises(sqlite3.IntegrityError):
+        save_new_quote(
+            conn,
+            replace(
+                lawn_quote(), status=Status.QUOTED, issued_on=ISSUED
+            ),
+            numbers("Q-7KQ-M9XD"),
+        )
+
+
+def test_draft_has_no_frozen_totals(conn):
+    saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
+    loaded = load_quote(conn, saved.number)
+    assert loaded.frozen is None
+    assert {item.frozen for item in loaded.line_items} == {None}

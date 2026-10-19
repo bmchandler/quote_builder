@@ -102,13 +102,13 @@ part) aren't supported, nor is rounding per invoice (decided
 
 A draft's totals are worked out from its lines whenever shown, never
 stored. Once a quote is quoted, its figures are frozen (decided
-2026-10-19): each line's amount, discount, tax, and total, and the
-foot's totals are stored with it and shown from then on, so a later
+2026-10-19): each line's amount, discount, and tax (its total is
+their sum), and the foot's totals are stored with it and shown from
+then on, so a later
 change to how totals are worked out never changes what a client was
 given. A revision starts as a draft, so it's worked out with the rules
 of the day until it's quoted and frozen in turn. Old rules aren't kept
-around to rework old quotes. Built with the step that marks a quote
-Quoted.
+around to rework old quotes.
 
 The quote's foot shows totals: items before discounts, discounts, tax,
 and the total. They update as the form is typed in; a line with no
@@ -208,11 +208,17 @@ Built (as of 2026-10-19), each with tests:
     2026-10-19; no workaround). Until then, the README tells users to
     save before closing.
 
-Nothing can change a quote's status yet: only drafts are made.
+  - Marking a draft Quoted (decided 2026-10-19): Mark Quoted, beside
+    Save, asks for the date issued (today) and valid-until (30 days
+    on, until the business profile makes it a setting), each typed as
+    `2026-11-18` or picked from a calendar. Valid-until can't be
+    before the date issued, and a quote needs a line. Confirming saves
+    the form's changes and marks it Quoted together, freezing its
+    figures (see Data); it then opens read-only, showing both dates.
+    The database refuses a non-draft without its dates and frozen
+    totals.
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Marking a draft Quoted (date issued, valid-until), with its figures
-   frozen (see Data).
-2. Revisions, expiry, and the extension log.
-3. The business profile and tax rates, clients, then the catalog.
+1. Revisions, expiry, and the extension log.
+2. The business profile and tax rates, clients, then the catalog.

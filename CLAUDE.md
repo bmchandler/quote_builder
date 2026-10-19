@@ -50,9 +50,9 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
 ## Code notes
 
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
-  `QuoteSummary`), money.py (text in and out: `parse_*` raise
-  ValueError with a message for the user, `format_*`), totals.py (all
-  money math), storage.py + schema.sql (all SQL), app.py (NiceGUI only;
+  `QuoteSummary`, `LineTotals`, `QuoteTotals`), money.py and dates.py
+  (text in and out: `parse_*` raise ValueError with a message for the
+  user, `format_*`), totals.py (all money math), storage.py + schema.sql (all SQL), app.py (NiceGUI only;
   calls the others). Never float for money: text goes straight to
   `Decimal`, cents are `int`; no `ui.number`.
 - storage.py: `connect` sets `PRAGMA foreign_keys = ON` while in
@@ -66,7 +66,9 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   `isoformat(timespec="seconds")`, so the text sorts by time.
   `save_new_quote`/`save_draft` take `now` and `draw_number` for tests.
 - Totals are computed from lines whenever shown, never stored, until
-  the Quoted step freezes them (REQUIREMENTS.md, Data).
+  `mark_quoted` freezes them (`frozen` on `Quote` and `LineItem`;
+  REQUIREMENTS.md, Data). Show figures with `shown_line_totals` /
+  `shown_quote_totals`, which prefer the frozen ones.
 - app.py: `quote_page(conn)` returns the root function for
   `ui.run(root)`; tests pass a temp database. In `root`, handlers are
   defined before the layout that calls them. `show(quote)` swaps the

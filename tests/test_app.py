@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -11,7 +11,7 @@ from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
 from quote_builder.quotes import LineItem, Quote, Status
-from quote_builder.storage import connect, load_quote, save_new_quote
+from quote_builder.storage import connect, load_quote, mark_quoted, save_new_quote
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ async def new_quote(user):
 
 
 def heading(user):
-    """The open form's heading, or None if no form is open."""
+    """The open quote's heading, or None if no quote is open."""
     try:
         return text(user.find(marker="heading"))
     except AssertionError:
@@ -193,12 +193,13 @@ async def test_reopened_draft_saves_unchanged(user, conn):
     assert load_quote(conn, saved.number) == saved
 
 
+ISSUED = date(2026, 10, 19)
+VALID_UNTIL = date(2026, 11, 18)
+
+
 async def test_open_a_quoted_quote_read_only(user, conn):
-    quote = Quote(
-        status=Status.QUOTED,
-        line_items=[LineItem("Mow lawn", Decimal("1"), 4500)],
-    )
-    saved = save_new_quote(conn, quote)
+    quote = Quote(line_items=[LineItem("Mow lawn", Decimal("1"), 4500)])
+    saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
 
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
@@ -375,12 +376,11 @@ async def test_list_shows_each_quotes_total(user, conn):
 
 async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     quote = Quote(
-        status=Status.QUOTED,
         line_items=[
             LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10"), tax_percent=Decimal("7.25")),
         ],
     )
-    saved = save_new_quote(conn, quote)
+    saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
 
@@ -459,3 +459,112 @@ async def test_clicking_the_open_quote_keeps_the_changes(user, conn):
     user.find(marker=f"quote-{saved.number}").click()
     await user.should_not_see(DISCARD_QUESTION)
     assert value(user.find(marker="price-1")) == "50"
+
+
+QUOTE_QUESTION = "It can't be edited after this; changes become revisions."
+
+
+async def test_mark_a_new_quote_quoted(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see("Mark this new quote quoted?")
+    user.find(marker="issued-on").clear().type("2026-10-19")
+    user.find(marker="valid-until").clear().type("2026-11-18")
+    user.find(marker="confirm-quoted").click()
+
+    # The click's handler finishes in the background.
+    await eventually(lambda: saved_numbers(conn) != [])
+    [number] = saved_numbers(conn)
+    await user.should_see(f"{number} (Quoted)")
+    await user.should_see("Issued Oct 19, 2026 · valid until Nov 18, 2026")
+    await user.should_see(f"{number} · Quoted")
+    await user.should_not_see("Save")
+    quoted = load_quote(conn, number)
+    assert quoted.status is Status.QUOTED
+    assert quoted.frozen.total_cents == 4500
+
+
+async def test_marking_quoted_saves_the_forms_changes(user, conn):
+    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+    user.find(marker="price-1").clear().type("50")
+
+    user.find("Mark Quoted").click()
+    await user.should_see(f"Mark {saved.number} quoted?")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see(f"{saved.number} (Quoted)")
+    assert load_quote(conn, saved.number).line_items[0].unit_price_cents == 5000
+
+
+async def test_dates_default_to_today_and_30_days_on(user):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see(QUOTE_QUESTION)
+
+    today = date.today()
+    assert value(user.find(marker="issued-on")) == today.isoformat()
+    assert value(user.find(marker="valid-until")) == (
+        today + timedelta(days=30)
+    ).isoformat()
+
+
+async def test_cancel_leaves_the_draft(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see(QUOTE_QUESTION)
+    user.find(kind=ui.button, content="Cancel").click()
+
+    await user.should_not_see(QUOTE_QUESTION)
+    assert heading(user) == "New Quote"
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+    assert saved_numbers(conn) == []
+
+
+async def test_valid_until_cant_be_before_issued(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see(QUOTE_QUESTION)
+    user.find(marker="issued-on").clear().type("2026-10-19")
+    user.find(marker="valid-until").clear().type("2026-10-18")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see("Valid until can't be before the issued date")
+    await user.should_see(QUOTE_QUESTION)  # still asking
+    assert saved_numbers(conn) == []
+
+
+async def test_date_that_doesnt_read_is_named(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see(QUOTE_QUESTION)
+    user.find(marker="valid-until").clear().type("next month")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see("'next month' isn't a date like 2026-11-18")
+    assert saved_numbers(conn) == []
+
+
+async def test_line_problem_is_shown_before_asking_for_dates(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "lots")
+    user.find("Mark Quoted").click()
+
+    await user.should_see("Line 1: 'lots' isn't an amount")
+    await user.should_not_see(QUOTE_QUESTION)
+
+
+async def test_quote_with_no_lines_cant_be_quoted(user, conn):
+    await new_quote(user)
+    user.find(marker="remove-1").click()
+    user.find("Mark Quoted").click()
+
+    await user.should_see("Add a line before marking it quoted")
+    await user.should_not_see(QUOTE_QUESTION)

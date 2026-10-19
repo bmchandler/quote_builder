@@ -18,7 +18,20 @@ CREATE TABLE IF NOT EXISTS quotes (
     notes       TEXT    NOT NULL DEFAULT '',
     -- When last saved: UTC, ISO 8601 with the offset, shown in local time.
     updated_at  TEXT    NOT NULL,
-    UNIQUE (number, revision)
+    -- The foot's totals, stored once quoted (frozen) and shown from then
+    -- on; a draft's are worked out from its lines whenever shown.
+    frozen_items_cents    INTEGER,
+    frozen_discount_cents INTEGER,
+    frozen_tax_cents      INTEGER,
+    frozen_total_cents    INTEGER,
+    UNIQUE (number, revision),
+    -- Only a draft goes without dates and frozen totals.
+    CHECK (status = 'Draft' OR (issued_on IS NOT NULL
+                                AND valid_until IS NOT NULL)),
+    CHECK ((status = 'Draft') = (frozen_items_cents IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_discount_cents IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_tax_cents IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_total_cents IS NULL))
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS line_items (
@@ -32,7 +45,13 @@ CREATE TABLE IF NOT EXISTS line_items (
     discount_cents   INTEGER,
     discount_percent TEXT,
     tax_percent      TEXT    NOT NULL DEFAULT '0',
+    -- The line's figures once quoted, as for the quote's foot: all or none.
+    frozen_amount_cents   INTEGER,
+    frozen_discount_cents INTEGER,
+    frozen_tax_cents      INTEGER,
     -- A discount is an amount or a percent, never both.
     CHECK (discount_cents IS NULL OR discount_percent IS NULL),
+    CHECK ((frozen_amount_cents IS NULL) = (frozen_discount_cents IS NULL)
+           AND (frozen_amount_cents IS NULL) = (frozen_tax_cents IS NULL)),
     UNIQUE (quote_id, position)
 ) STRICT;
