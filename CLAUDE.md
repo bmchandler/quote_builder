@@ -9,7 +9,63 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
 
 @DEVELOPMENT.md
 
-## How we work
+## Working norms (portable)
+
+Norms the user has settled across projects, not specific to this one.
+When starting a new project, or asked to bring over the working norms
+from an earlier one, copy this whole section into its CLAUDE.md as
+is. They live in each project's CLAUDE.md, not in `~/.claude/CLAUDE.md`:
+that file is intentionally not being used "due to administrative
+overhead." For example, `~/.claude` isn't git-synced, so a VM rebuild
+would lose it. Norms live in CLAUDE.md only; don't keep a memory copy
+of one: a second copy drifts, and can mask a problem in this file.
+
+### Working style
+
+- Hands-off by default: once the approach is clear, Claude takes a
+  step all the way to the end (code, tests, docs, a staged diff with a
+  drafted message), then still pauses before committing. The user
+  designs (wording, layout, where things live, flow) from concrete
+  options, previews, and trade-offs Claude offers, rather than Claude
+  deciding design questions for them. Hands-off doesn't mean assume:
+  ask early, before building much, whenever unsure about anything.
+
+### Commits and pushes
+
+- Never `git commit` without the user's explicit go-ahead for that
+  commit. First: stage what makes sense, write the full drafted
+  message (subject, body, trailer) in a code block in the chat itself
+  (the app's next-step box shows only a short recap), and pause so the
+  user can review the diff and message and hand-test the app. The
+  go-ahead can be any natural phrasing ("Proceed", "Go ahead and
+  commit").
+- These are not a go-ahead: a plan or answer that mentions committing
+  ("then stage and commit 1"), approval of an earlier commit, or
+  approval given before the work was re-cut or changed. When in
+  doubt, show the message and ask.
+- Never `git push` unless the user asks for that push. A go-ahead to
+  commit is not one to push.
+- Exceptions only when the user names them, case by case; one never
+  carries over to later commits or pushes.
+- Iterate a step until it's fully baked, then commit it: reworking
+  staged work before then (re-cutting it, removing fields) is normal.
+  A bug caught after a commit gets a standard bugfix commit, never an
+  amend. Committing a mistake as it was and its fix separately is an
+  edge case, for a complex situation where holding the commit seems
+  risky: raise it, don't assume it.
+- Commit messages: short subject line, a body with details when useful,
+  then the Co-Authored-By trailer. The first commit in a repo is always
+  `Initial Commit`.
+- Push targets: the private gitserver (`origin`) by default. A public
+  mirror (GitHub) only when what's going out is probably safe to
+  publish (it can't be taken back): if unsure, push to the gitserver
+  only and vet the public push with the user first.
+- Branches, in uv projects unless noted otherwise: work and commit on
+  `dev`, never on `main`; `main` only ever points at the newest
+  release's tag, moved only by the release step. A plain install
+  then gets the newest release, a good pattern for users.
+
+### Steps
 
 - Build in small "horizontal" steps: only what the current request
   needs, and whatever a step adds comes with what uses it, so the
@@ -20,33 +76,73 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   Describe planned steps by what the user can try after each.
 - Don't scaffold ahead or add functions before a step uses them. The
   exception, raised and agreed first: groundwork for something
-  certain to come that's cheap now and costly to change later (the
-  `businesses` table, shaped for several businesses before they can
-  be added). When less sure, pay the redo cost in the step that needs
+  certain to come that's cheap now and costly to change later (say, a
+  table shaped for several of something before more than one can be
+  added). When less sure, pay the redo cost in the step that needs
   it: the feature may be dropped before then.
-- Add or update tests alongside each change.
-- After changes are done, stage what makes sense, draft a commit
-  message, and pause there. Don't run `git commit` until the user reviews
-  the diff/stage/message and app behavior and gives a clear go-ahead to
-  commit, in whatever natural phrasing ("Proceed", "Go ahead and
-  commit", etc.). Always write the full drafted message (subject, body,
-  trailer) in a code block in the chat itself: the app's next-step box
-  shows only a short recap.
-- Don't `git push` unasked. The user pushes by hand, or asks for a push.
-- Commit messages: short subject line, a body with details when useful,
-  then the Co-Authored-By trailer. The first commit in a repo is always
-  `Initial Commit`.
-- When a request is ambiguous (especially about UI behavior), ask instead
-  of guessing.
+- REQUIREMENTS.md is the source of truth for scope and rules, updated
+  in the same change whenever a rule changes; its "Status and plan"
+  section says what's built and what's next, updated when a planned
+  item lands.
+- No repo polish (linters, pre-commit, CI) unless the user asks.
+
+### Tests
+
+- Add or update tests alongside each change: a unit test for a rule
+  and an app-level test proving it's wired in, even where they check
+  the same thing (a rule dropped from the app's wiring passes every
+  unit test). Never propose cutting coverage for speed; run the full
+  suite by default.
+- Hand-test data only when the user asks, a few records that show off
+  the whole feature. Text in it saying how a record came about is
+  marked when that didn't literally happen (`Simulated hand-added`),
+  so it can't be taken for the real thing.
+
+### Questions and answers
+
+- When a request is ambiguous (about UI behavior or anything else),
+  ask instead of guessing.
 - "Can we ...?" / "Could we ...?" is a literal question, not a go-ahead
   to edit. Answer it (doable out of the box with the framework? the
   trade-offs? would it override stock behavior?), then wait for a clear
-  instruction.
-- REQUIREMENTS.md's "Status and plan" section says what's built and
-  what's next; update it when a planned item lands.
-- No repo polish (linters, pre-commit, CI) unless the user asks.
+  instruction. Avoid overriding framework defaults unless the user
+  decides to.
 - The user is learning from the code: point out good practices (and
   traps met) when reporting a change, briefly.
+
+### Wording and docs
+
+- On-screen wording the user dictates is used word for word (moving
+  line breaks to fit is fine). For a case it doesn't cover, ask with
+  concrete previews rather than writing new wording. Keep set phrases
+  the same across related cases: consistent beats precise-but-varying.
+- In docs, a reference to a section or file is a link to it:
+  `[Your data](#your-data)`, `[DEVELOPMENT.md](DEVELOPMENT.md)`. Not
+  needed for a file already linked earlier in the same paragraph.
+- What a third party does is stated as fact only from its own
+  documentation; otherwise worded as uncertain ("appears to", "it's
+  likely"), with the evidence where known. Never the word "hedge".
+- Public docs (README) are terse and matter-of-fact, never name a
+  third party as a bug's cause, and are for users only: developer
+  material goes in developer docs, which the README doesn't mention.
+- No email addresses in anything published: code, docs, package
+  metadata, request headers. Contact is the repo's issues; a client
+  identifies itself by the repo URL.
+
+### Files
+
+- In Accept Edits mode (the user's usual one), make file changes with
+  the Edit/Write tools, not inline scripts (`python3 - <<'EOF'`,
+  `sed -i`), to keep approval dialogs down: edits go through and show
+  in Changes, while a script is opaque and asks for approval. Use the
+  shell to run things (tests, git, servers).
+- Wrap Markdown prose at about 70 columns: the user reads files with
+  `cat` in a third of the screen.
+
+## How we work (this project)
+
+- Branches: still committing on `main`; the `dev`/`main` pattern
+  (above) isn't set up here yet, until the user decides to.
 - Check screen changes in the browser pane before handing over: a
   scratch script (outside the repo) that seeds a scratch database with
   made-up quotes and runs `ui.run(quote_page(conn), port=..., show=False,
@@ -59,13 +155,6 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   JavaScript): wait ~5 s before calling it lost. Run the server as a
   background task and stop it with TaskStop: `pkill -f`/`pgrep -f` on
   its path also match the shell running them, and kill that.
-- Make file changes with the Edit/Write tools, not inline scripts
-  (`python3 - <<'EOF'`, `sed -i`): the user works in Accept Edits
-  mode, where edits go through and show in Changes, while a script is
-  opaque and asks for approval. Use the shell to run things (tests,
-  git, the scratch server).
-- Wrap Markdown prose at about 70 columns: the user reads files with
-  `cat` in a third of the screen.
 - Wording on screen: dates on a quote are `11/18/2026`, in the list
   `Nov 18, 2026`; a quote's last day is "Valid through" (REQUIREMENTS.md
   explains why); search places say "Line Item 3", not "Line 3".
