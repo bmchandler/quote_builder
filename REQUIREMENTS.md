@@ -217,8 +217,8 @@ Built (as of 2026-10-20), each with tests:
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
   line items, saving changes to a draft (lines replaced), loading one
   back, and listing quotes with search. A business and its settings
-  (business.py): one so far, made on first start, holding only days
-  valid yet. The table is shaped for several businesses ahead of
+  (business.py): one so far, made on first start, holding days valid
+  and Extend's days so far. The table is shaped for several businesses ahead of
   time (agreed 2026-10-20): they're certain to come, and moving
   settings into it later would be work undone.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
@@ -239,7 +239,9 @@ Built (as of 2026-10-20), each with tests:
   - Settings (decided 2026-10-20): at the bottom of the side panel,
     below a divider, a Settings button opens the business's settings
     on the right, with Save: so far "Quotes valid for (days)", which
-    Mark Quoted's valid-through starts from (a whole number above 0).
+    Mark Quoted's valid-through starts from, and "Extend by (days)",
+    blank to start, which picks Extend's first choice. Each is a
+    whole number above 0; a message names the field that isn't.
     Leaving it with unsaved changes asks first, as a quote's form
     does. The title at the top left stays "Quote Builder" (maybe with
     a version later).
@@ -283,8 +285,10 @@ Built (as of 2026-10-20), each with tests:
   - Extending (decided 2026-10-19): Extend, on a Quoted or Expired
     quote, offers 30 more days (picked to start), 7 more days (both
     counted from the valid-through date, or from today if that's
-    past), or a custom date, showing the new date as it's picked. A
-    setting for which one starts picked may come later. The new date
+    past), or a custom date, showing the new date as it's picked.
+    Settings' "Extend by (days)" picks the first choice (decided
+    2026-10-20): 30 or 7 picks that one; any other number picks
+    Custom, its date that many days on; blank, 30. The new date
     must be later than the old one and not past. Once extended, the
     quote shows "Extended once; first valid through 11/18/2026" (or
     "2 times", and so on).
@@ -329,21 +333,17 @@ Built (as of 2026-10-20), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Extend's default (planned 2026-10-20): a setting for the days
-   Extend offers first. 30 or 7 picks that choice; any other number
-   picks Custom with its date filled in. Unset, Extend starts at 30
-   days, as now.
-2. Business details on quotes (planned 2026-10-20): name, phone,
+1. Business details on quotes (planned 2026-10-20): name, phone,
    email, website, and address in Settings, shown on each quote and
    copied onto it when it's marked Quoted (see Data). Where on the
    quote: to ask before building.
-3. Terms: in Settings, shown at the foot of each quote, frozen the
+2. Terms: in Settings, shown at the foot of each quote, frozen the
    same way.
-4. More than one business (planned 2026-10-20): quotes belong to a
+3. More than one business (planned 2026-10-20): quotes belong to a
    business, and the app shows one at a time (list and search cover
    only its quotes). Beside Settings, the current business's name
    (or "Unnamed business") with a menu of the others and "Add
    business…". Later, with only one business, the top left could
    offer its name or a banner image instead of "Quote Builder".
-5. Tax rates (and the business's default), clients, then the
+4. Tax rates (and the business's default), clients, then the
    catalog.

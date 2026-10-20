@@ -694,6 +694,32 @@ async def test_extend_to_a_custom_date(user, conn):
     await shows_valid_through(user, "11/20/2026")
 
 
+def extend_choice(user):
+    [radio] = user.find(marker="extend-choice").elements
+    return radio.value
+
+
+async def test_extend_setting_of_7_picks_7_days(user, conn):
+    save_business(conn, replace(current_business(conn), extend_days=7))
+    saved = quoted(conn)  # valid through 11/18/2026
+    await open_saved(user, saved)
+    await start_extending(user)
+
+    assert extend_choice(user) == "7"
+    await user.should_see("New valid through: 11/25/2026")
+
+
+async def test_extend_setting_of_other_days_picks_a_custom_date(user, conn):
+    save_business(conn, replace(current_business(conn), extend_days=14))
+    saved = quoted(conn)  # valid through 11/18/2026
+    await open_saved(user, saved)
+    await start_extending(user)
+
+    assert extend_choice(user) == "custom"
+    assert value(user.find(marker="new-valid-until")) == "12/02/2026"
+    await user.should_see("New valid through: 12/02/2026")
+
+
 async def test_custom_date_must_be_later(user, conn):
     saved = quoted(conn)
     await open_saved(user, saved)
@@ -1075,9 +1101,32 @@ async def open_settings(user):
     await eventually(lambda: heading(user) == "Settings")
 
 
-async def test_settings_start_at_30_days(user):
+async def test_settings_start_at_30_days_and_extend_unset(user):
     await open_settings(user)
     assert value(user.find(marker="business-valid-days")) == "30"
+    assert value(user.find(marker="business-extend-days")) == ""
+
+
+async def test_save_and_clear_the_extend_setting(user, conn):
+    await open_settings(user)
+    user.find(marker="business-extend-days").type("14")
+    user.find(kind=ui.button, content="Save").click()
+    await user.should_see("Settings saved")
+    assert current_business(conn).extend_days == 14
+
+    await eventually(lambda: value(user.find(marker="business-extend-days")) == "14")
+    user.find(marker="business-extend-days").clear()
+    user.find(kind=ui.button, content="Save").click()
+    await eventually(lambda: current_business(conn).extend_days is None)
+
+
+async def test_settings_say_which_days_dont_read(user, conn):
+    await open_settings(user)
+    user.find(marker="business-extend-days").type("a week")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Extend by: Days must be a whole number above 0")
+    assert current_business(conn).extend_days is None
 
 
 async def test_save_settings(user, conn):
@@ -1096,7 +1145,16 @@ async def test_settings_refuse_days_that_dont_read(user, conn):
     user.find(marker="business-valid-days").clear().type("two weeks")
     user.find(kind=ui.button, content="Save").click()
 
-    await user.should_see("Days must be a whole number above 0, like 30")
+    await user.should_see("Quotes valid for: Days must be a whole number above 0")
+    assert current_business(conn).valid_days == 30
+
+
+async def test_settings_refuse_blank_valid_days(user, conn):
+    await open_settings(user)
+    user.find(marker="business-valid-days").clear()
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Quotes valid for: Days must be a whole number above 0")
     assert current_business(conn).valid_days == 30
 
 

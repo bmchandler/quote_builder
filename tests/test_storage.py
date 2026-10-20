@@ -557,9 +557,17 @@ def test_a_business_is_made_the_first_time(conn):
 
 
 def test_save_business(conn):
-    business = replace(current_business(conn), valid_days=14)
+    business = replace(current_business(conn), valid_days=14, extend_days=7)
     save_business(conn, business)
     assert current_business(conn) == business
+    save_business(conn, replace(business, extend_days=None))  # unset again
+    assert current_business(conn).extend_days is None
+
+
+def test_business_extend_days_must_be_above_zero(conn):
+    business = replace(current_business(conn), extend_days=0)
+    with pytest.raises(sqlite3.IntegrityError):
+        save_business(conn, business)
 
 
 def test_business_valid_days_must_be_above_zero(conn):

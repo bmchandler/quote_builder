@@ -11,7 +11,10 @@
 CREATE TABLE IF NOT EXISTS businesses (
     id         INTEGER PRIMARY KEY,
     -- Days from issue to a new quote's valid-through date.
-    valid_days INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0)
+    valid_days INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0),
+    -- Days Extend offers first; NULL (unset) for its own first, 30. A
+    -- CHECK passes on NULL (NULL > 0 is unknown, not false).
+    extend_days INTEGER CHECK (extend_days > 0)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS quotes (

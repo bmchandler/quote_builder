@@ -71,7 +71,12 @@ def current_business(conn: sqlite3.Connection) -> Business:
             """
         )
         row = conn.execute(
-            "SELECT id, valid_days FROM businesses ORDER BY id LIMIT 1"
+            """
+            SELECT id, valid_days, extend_days
+            FROM businesses
+            ORDER BY id
+            LIMIT 1
+            """
         ).fetchone()
     return Business(**dict(row))  # the columns are named as its fields
 
@@ -81,7 +86,9 @@ def save_business(conn: sqlite3.Connection, business: Business) -> None:
     with conn:
         conn.execute(
             """
-            UPDATE businesses SET valid_days = :valid_days WHERE id = :id
+            UPDATE businesses
+            SET valid_days = :valid_days, extend_days = :extend_days
+            WHERE id = :id
             """,
             vars(business),
         )

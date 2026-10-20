@@ -9,3 +9,4 @@ from quote_builder.dates import VALID_DAYS
 class Business:
     id: int | None = None
     valid_days: int = VALID_DAYS  # a new quote's valid-through, from issue
+    extend_days: int | None = None  # what Extend offers first; None: unset

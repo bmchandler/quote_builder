@@ -194,7 +194,8 @@ def quote_page(
             show(quote)
 
         async def extend(quote: Quote) -> None:
-            extended = await ask_extension(conn, quote, today())
+            extend_days = current_business(conn).extend_days
+            extended = await ask_extension(conn, quote, today(), extend_days)
             if extended is not None:
                 ui.notify(
                     f"{name_of(extended)} valid through "
@@ -368,23 +369,41 @@ def business_settings(
         .classes("w-96")
         .mark("business-valid-days")
     )
+    extend_days = (
+        ui.input("Extend by (days)", value=str(business.extend_days or ""))
+        .props('hint="What Extend offers first; blank for 30"')
+        .classes("w-96")
+        .mark("business-extend-days")
+    )
+    fields = [valid_days, extend_days]
 
     def save() -> None:
+        # A cleared input's value is None, not "".
         try:
-            days = parse_days(valid_days.value)
+            days = parse_days(valid_days.value or "")
         except ValueError as problem:
-            ui.notify(str(problem), type="negative")
+            ui.notify(f"Quotes valid for: {problem}", type="negative")
             return
-        save_business(conn, replace(business, valid_days=days))
+        extend = None  # blank is unset: Extend keeps its own first choice
+        if (extend_days.value or "").strip():
+            try:
+                extend = parse_days(extend_days.value)
+            except ValueError as problem:
+                ui.notify(f"Extend by: {problem}", type="negative")
+                return
+        save_business(conn, replace(business, valid_days=days, extend_days=extend))
         ui.notify("Settings saved")
         on_saved()
 
     ui.button("Save", on_click=save).classes("mt-4")
 
+    def form_state() -> tuple:
+        return tuple(field.value or "" for field in fields)  # None: cleared
+
     # Saving shows the settings again, so this is also the saved state.
-    opened_with = valid_days.value
+    opened_with = form_state()
     return Editor(
-        "the settings", lambda: valid_days.value != opened_with, lambda term: None
+        "the settings", lambda: form_state() != opened_with, lambda term: None
     )
 
 
@@ -704,14 +723,17 @@ async def ask_quoted_dates(
 
 
 async def ask_extension(
-    conn: sqlite3.Connection, quote: Quote, today: date
+    conn: sqlite3.Connection, quote: Quote, today: date, extend_days: int | None
 ) -> Quote | None:
-    """Ask how far to extend `quote`, and extend it.
+    """Ask how far to extend `quote`, and extend it. `extend_days` (the
+    business's setting) picks the first choice: 30 or 7 picks that one,
+    any other number a custom date that many days on; None picks 30.
 
     Returns the extended quote, or None if the user cancels.
     """
-    # 30 first, as the usual choice (a setting can pick the default later).
     choices = {"30": "30 more days", "7": "7 more days", "custom": "Custom date"}
+    days = extend_days or 30  # 30 unset, as the usual choice
+    first = str(days) if str(days) in choices else "custom"
     with ui.dialog() as dialog, ui.card():
         ui.label(f"Extend {name_of(quote)}?").classes("text-h6")
         through = format_numeric_date(quote.valid_until)
@@ -719,11 +741,11 @@ async def ask_extension(
             ui.label(f"Expired; was valid through {through}.")
         else:
             ui.label(f"Currently valid through {through}.")
-        choice = ui.radio(choices, value="30", on_change=lambda: show_new_date())
+        choice = ui.radio(choices, value=first, on_change=lambda: show_new_date())
         choice.props("inline").mark("extend-choice")
         custom = date_input(
             "New valid through",
-            extended_until(quote.valid_until, today, 30),
+            extended_until(quote.valid_until, today, days),
             "new-valid-until",
             on_change=lambda: show_new_date(),
         )
