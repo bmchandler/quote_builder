@@ -42,7 +42,18 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   reload=False)`, viewed at 1000×750, the native window's size. The
   user hand-tests in the native window. The dev VM has no working 3D
   (software rendering), so the window feels slow there but not on real
-  hardware.
+  hardware. To try a layout change (a width, say), change it in the
+  code: styling the page by hand in the pane can mislead.
+- Make file changes with the Edit/Write tools, not inline scripts
+  (`python3 - <<'EOF'`, `sed -i`): the user works in Accept Edits
+  mode, where edits go through and show in Changes, while a script is
+  opaque and asks for approval. Use the shell to run things (tests,
+  git, the scratch server).
+- Wrap Markdown prose at about 70 columns: the user reads files with
+  `cat` in a third of the screen.
+- Wording on screen: dates on a quote are `11/18/2026`, in the list
+  `Nov 18, 2026`; a quote's last day is "Valid through" (REQUIREMENTS.md
+  explains why); search places say "Line Item 3", not "Line 3".
 - Until close to the first release, the database schema and data files
   can change freely: no migrations, and no need to keep existing data
   in `data/`, unless the user says they're keeping hand-test data.
@@ -111,6 +122,16 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   `find(kind=ui.button, content=...)` when it's ambiguous.
 - Check a new test fails without the change it covers (break the code
   briefly) when the test is about async UI behavior.
+- The `user` fixture's page has a fixed `TODAY` (10/19/2026), so dated
+  quotes don't expire as real time passes; seed quoted ones with
+  `mark_quoted` (the database refuses a non-draft without frozen
+  totals), and revisions with `revision_draft` + `save_revision`.
+- `user.find(...)` raises when nothing matches, so it can't be polled
+  with `eventually`; wait with `should_see` / `should_not_see` (they
+  take `marker=` and `kind=` too). `find(...).elements` is a set: to
+  check order, compare element ids, which follow drawing order.
+- `should_see` also matches notifications: to check what a quote
+  shows, read its marked element (e.g. `marker="dates"`), not any text.
 
 ## Privacy
 

@@ -286,5 +286,13 @@ Next, growing the screen, storage, and tests together in small steps:
    banner at the top, such as "This is an older version; R2 (Draft)
    is current", with a button to go to the current one, so it's
    never taken for the current one in a hurry. It also helps find a
-   draft in progress through an older version's text.
+   draft in progress through an older version's text. To ask the
+   user before building: the banner's wording and look (color, icon,
+   button label); whether it also shows on an older version opened
+   from Version history (likely yes: "any older version"); and what a
+   click does when the match is in the newest version or several
+   versions (likely the newest that matched). Without a search, a
+   click opens the newest version, as now. Pieces to build on:
+   search.hidden_match already knows which version matched
+   (SearchText.revision), and app.py's open_quote takes a revision.
 2. The business profile and tax rates, clients, then the catalog.
