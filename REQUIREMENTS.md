@@ -198,7 +198,7 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
 ## Status and plan
 
-Built (as of 2026-10-19), each with tests:
+Built (as of 2026-10-20), each with tests:
 
 - Quote numbers (quote_numbers.py).
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
@@ -269,30 +269,32 @@ Built (as of 2026-10-19), each with tests:
     "Q-7KQ-M9XD-R1 (New revision)". Nothing is stored until Save or
     Mark Quoted, so leaving it unchanged leaves no trace. Quoting it
     makes the versions before it Superseded. A quote has at most one
-    draft (the database refuses a second); on an older version,
-    Revise reads "Open Draft R1" and opens it instead.
+    draft (the database refuses a second). An older version has no
+    Revise; its banner leads to the newest (see Older versions).
   - Version history (decided 2026-10-19): once a quote has more than
     one version, a "Version history" link at the top right of it
     opens a list of its versions, newest first, each with its status,
     dates (or date saved, for a draft), and total; clicking one opens
     it.
+  - Opening the version a search found (decided 2026-10-20): while
+    searching, clicking a row opens the newest version that matched
+    (an older one, if that's where the match is), so the user can
+    confirm it's the quote they remember. Without a search, or when
+    the row shows the match, a click opens the newest version.
+  - Older versions (decided 2026-10-20): any version but the newest,
+    however it was opened, shows an amber banner under its heading:
+    "This is an older version. R2 (Draft) is the newest.", with "Go
+    to Draft R2" ("Go to R2" if it isn't a draft: the button says
+    what it opens). "Newest", not "current": while R2 is a draft, the
+    quoted R1 is still the one the client has. The point is that a
+    stale version is plain at a glance. The banner replaced the "Open
+    Draft R2" button an older version had: both went to the newest.
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Open the version a search found (planned 2026-10-19): clicking a
-   row while searching opens the version the snippet points to (an
-   older one, if that's where it matched), so the user can confirm
-   it's the quote they remember. Any older version then shows a
-   banner at the top, such as "This is an older version; R2 (Draft)
-   is current", with a button to go to the current one, so it's
-   never taken for the current one in a hurry. It also helps find a
-   draft in progress through an older version's text. To ask the
-   user before building: the banner's wording and look (color, icon,
-   button label); whether it also shows on an older version opened
-   from Version history (likely yes: "any older version"); and what a
-   click does when the match is in the newest version or several
-   versions (likely the newest that matched). Without a search, a
-   click opens the newest version, as now. Pieces to build on:
-   search.hidden_match already knows which version matched
-   (SearchText.revision), and app.py's open_quote takes a revision.
-2. The business profile and tax rates, clients, then the catalog.
+1. The business profile and tax rates, clients, then the catalog.
+2. After some use, revisit a search that matches several versions of
+   a quote (planned 2026-10-20). For now, a click opens the newest
+   that matched. Options: keep that; list each version that matched
+   in the side panel, each opening its own; or keep one row and ask
+   which version to open when more than one matched.

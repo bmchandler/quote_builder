@@ -770,15 +770,17 @@ async def test_mark_a_revision_quoted_supersedes_the_one_before(user, conn):
     assert load_quote(conn, saved.number, 0).status is Status.SUPERSEDED
 
 
-async def test_older_version_offers_to_open_the_draft(user, conn):
+async def test_older_version_leads_to_the_draft(user, conn):
     saved = quoted(conn)
     save_revision(conn, revision_draft(saved, 1))
     await reload(user)
     await open_version(user, saved.number, 0)
 
-    [button] = user.find(marker="revise").elements
-    assert button.text == "Open Draft R1"
-    user.find(marker="revise").click()
+    await user.should_see(kind=ui.button, content="Extend")  # drawn
+    await user.should_not_see(marker="revise")  # the banner leads there
+    [button] = user.find(marker="go-to-newest").elements
+    assert button.text == "Go to Draft R1"
+    user.find(marker="go-to-newest").click()
     await eventually(lambda: heading(user) == f"{saved.number}-R1 (Draft)")
 
 
@@ -827,6 +829,55 @@ async def test_search_finds_a_quote_by_an_older_version(user, conn):
     await reload(user)
     user.find(marker="search").type("mow")
     await user.should_see(f"{saved.number}-R1 · Draft")
+
+
+def with_edging_draft(conn):
+    """A quoted "Mow lawn" quote, and an R1 draft of "Edge walks"."""
+    saved = quoted(conn)
+    save_revision(
+        conn,
+        replace(
+            revision_draft(saved, 1),
+            line_items=[LineItem("Edge walks", Decimal(1), 1500)],
+        ),
+    )
+    return saved
+
+
+async def test_search_opens_the_older_version_that_matched(user, conn):
+    saved = with_edging_draft(conn)
+    await reload(user)
+    await search_for(user, "mow")
+    user.find(marker=f"quote-{saved.number}").click()
+
+    await eventually(lambda: heading(user) == f"{saved.number} (Quoted)")
+    await user.should_see(
+        "This is an older version. R1 (Draft) is the newest.", marker="older-version"
+    )
+
+
+async def test_search_opens_the_newest_when_it_matched(user, conn):
+    saved = with_edging_draft(conn)
+    await reload(user)
+    await search_for(user, "edge")
+    user.find(marker=f"quote-{saved.number}").click()
+
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (Draft)")
+    await user.should_not_see(marker="older-version")
+
+
+async def test_older_version_banner_goes_to_the_newest(user, conn):
+    saved = quoted(conn)
+    mark_quoted(conn, revision_draft(saved, 1), TODAY, VALID_UNTIL, new_revision=True)
+    await reload(user)
+    await open_version(user, saved.number, 0)  # from Version history
+
+    await user.should_see("R1 (Quoted) is the newest", marker="older-version")
+    [button] = user.find(marker="go-to-newest").elements
+    assert button.text == "Go to R1"
+    user.find(marker="go-to-newest").click()
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (Quoted)")
+    await user.should_not_see(marker="older-version")
 
 
 async def open_version(user, number, revision):

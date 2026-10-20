@@ -7,6 +7,7 @@ HTML.
 
 import html
 import re
+from typing import NamedTuple
 
 from quote_builder.quotes import QuoteSummary, SearchText, version_name
 
@@ -60,12 +61,19 @@ def excerpt(text: str, term: str) -> str:
     return ("…" if start > 0 else "") + cut + ("…" if end < len(text) else "")
 
 
+class HiddenMatch(NamedTuple):
+    """A match the quote's row doesn't show."""
+
+    place: str  # "Notes", "Line Item 3", "R1, Line Item 2"
+    excerpt: str  # plain text
+    revision: int  # the version it's in
+
+
 def hidden_match(
     summary: QuoteSummary, texts: list[SearchText], term: str
-) -> tuple[str, str] | None:
-    """Where `term` matched, when the row doesn't show it, and an
-    excerpt: ("Notes", "…back hedges too…"), ("Line Item 3", …), or
-    ("R1, Line Item 2", …) for an older version, as plain text.
+) -> HiddenMatch | None:
+    """Where `term` matched, when the row doesn't show it, an excerpt,
+    and the version: the newest that matched.
 
     None if there's no term, or the row's number or first line shows
     the match already. `texts` is the quote's, newest version first.
@@ -80,7 +88,11 @@ def hidden_match(
         if piece.revision == summary.revision and is_first_line:
             continue  # shown in the row
         if matches(piece.text, term):
-            return _place(piece, summary.revision), excerpt(piece.text, term)
+            return HiddenMatch(
+                _place(piece, summary.revision),
+                excerpt(piece.text, term),
+                piece.revision,
+            )
     return None
 
 

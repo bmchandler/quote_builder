@@ -43,7 +43,11 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   user hand-tests in the native window. The dev VM has no working 3D
   (software rendering), so the window feels slow there but not on real
   hardware. To try a layout change (a width, say), change it in the
-  code: styling the page by hand in the pane can mislead.
+  code: styling the page by hand in the pane can mislead. A click
+  there can take seconds to draw (first use of a component loads its
+  JavaScript): wait ~5 s before calling it lost. Run the server as a
+  background task and stop it with TaskStop: `pkill -f`/`pgrep -f` on
+  its path also match the shell running them, and kill that.
 - Make file changes with the Edit/Write tools, not inline scripts
   (`python3 - <<'EOF'`, `sed -i`): the user works in Accept Edits
   mode, where edits go through and show in Changes, while a script is

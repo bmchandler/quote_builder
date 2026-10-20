@@ -5,6 +5,7 @@ import pytest
 from quote_builder.quotes import QuoteSummary, SearchText, Status
 from quote_builder.search import (
     MARK_CLASS,
+    HiddenMatch,
     excerpt,
     hidden_match,
     highlight,
@@ -85,13 +86,14 @@ def test_no_hidden_match_when_the_row_shows_it():
 
 def test_hidden_match_in_notes():
     texts = [line(0, 0, "Mow lawn"), notes(0, "Back hedges too")]
-    assert hidden_match(summary(), texts, "hedges") == ("Notes", "Back hedges too")
+    found = hidden_match(summary(), texts, "hedges")
+    assert found == HiddenMatch("Notes", "Back hedges too", 0)
 
 
 def test_hidden_match_in_a_later_line():
     texts = [line(0, 0, "Mow lawn"), line(0, 2, "Trim hedges")]
     found = hidden_match(summary(), texts, "hedges")
-    assert found == ("Line Item 3", "Trim hedges")
+    assert found == HiddenMatch("Line Item 3", "Trim hedges", 0)
 
 
 def test_hidden_match_in_an_older_version():
@@ -101,10 +103,20 @@ def test_hidden_match_in_an_older_version():
         notes(0, "Old notes"),
     ]
     found = hidden_match(summary(revision=1), texts, "hedges")
-    assert found == ("Original, Line Item 1", "Trim hedges")
+    assert found == HiddenMatch("Original, Line Item 1", "Trim hedges", 0)
     texts = [line(2, 0, "Mow lawn"), notes(1, "Hedges next time")]
     found = hidden_match(summary(revision=2), texts, "hedges")
-    assert found == ("R1, Notes", "Hedges next time")
+    assert found == HiddenMatch("R1, Notes", "Hedges next time", 1)
+
+
+def test_hidden_match_is_the_newest_version_that_matched():
+    texts = [
+        line(2, 0, "Mow lawn"),
+        notes(1, "Hedges, second pass"),
+        line(0, 0, "Trim hedges"),
+    ]
+    found = hidden_match(summary(revision=2), texts, "hedges")
+    assert found.revision == 1
 
 
 def test_no_hidden_match_without_a_term():

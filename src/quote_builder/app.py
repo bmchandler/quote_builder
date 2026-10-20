@@ -52,7 +52,7 @@ from quote_builder.storage import (
     save_revision,
     search_texts,
 )
-from quote_builder.search import hidden_match, highlight
+from quote_builder.search import HiddenMatch, hidden_match, highlight
 from quote_builder.totals import (
     line_totals,
     quote_totals,
@@ -103,32 +103,32 @@ def quote_page(
                         on_history=on_history,
                     )
                 else:
+                    # A draft is always the newest, so only a view can
+                    # be an older version.
+                    newest = versions[0]
                     quote_view(
                         quote,
                         on_extend=lambda: extend(quote),
-                        revise=revise_action(quote, versions),
+                        on_revise=revise_action(quote, versions),
                         on_history=on_history,
+                        newer=newest if newest.revision != quote.revision else None,
+                        on_newest=lambda: open_quote(quote.number),
                     )
             quote_list.refresh()
 
         def revise_action(
             quote: Quote, versions: list[QuoteSummary]
-        ) -> tuple[str, Callable[[], None]] | None:
-            """The Revise button's label and handler for `quote`, if any.
+        ) -> Callable[[], None] | None:
+            """The Revise button's handler for `quote`, if it has one.
 
-            Only the newest version can be revised; on an older one, an
-            unfinished revision draft is opened instead.
+            Only the newest version can be revised (an older one's banner
+            leads to the newest).
             """
             newest = versions[0]
-            if newest.status is Status.DRAFT and newest.revision != quote.revision:
-                return (
-                    f"Open Draft R{newest.revision}",
-                    lambda: open_quote(quote.number, newest.revision),
-                )
             if newest.revision == quote.revision and quote.status in REVISABLE:
-                return ("Revise", lambda: show(
+                return lambda: show(
                     revision_draft(quote, newest.revision + 1), new_revision=True
-                ))
+                )
             return None
 
         async def may_leave() -> bool:
@@ -200,15 +200,23 @@ def quote_page(
                     texts = search_texts(conn, [s.number for s in summaries])
                 with ui.list().props("separator").classes("w-full"):
                     for summary in summaries:
+                        hidden = hidden_match(
+                            summary, texts.get(summary.number, []), term
+                        )
+                        # A click opens the version the search found: the
+                        # newest, if the row shows the match.
+                        revision = hidden.revision if hidden else None
                         quote_list_item(
                             summary,
                             selected=current is not None
                             and summary.number == current.number,
-                            on_click=lambda number: open_quote(number),
-                            term=term,
-                            hidden=hidden_match(
-                                summary, texts.get(summary.number, []), term
+                            # Defaults, so each row keeps its own values
+                            # (a plain lambda would see the loop's last).
+                            on_click=lambda n=summary.number, r=revision: (
+                                open_quote(n, r)
                             ),
+                            term=term,
+                            hidden=hidden,
                         )
 
             quote_list()
@@ -302,9 +310,9 @@ def landing() -> None:
 def quote_list_item(
     summary: QuoteSummary,
     selected: bool,
-    on_click: Callable[[str], None],
+    on_click: Callable[[], None],
     term: str = "",
-    hidden: tuple[str, str] | None = None,
+    hidden: HiddenMatch | None = None,
 ) -> None:
     """One quote in the side list: number, status, first line, date, total.
 
@@ -312,7 +320,7 @@ def quote_list_item(
     (where it matched and an excerpt, from search.hidden_match) adds a
     line for a match the row doesn't otherwise show.
     """
-    item = ui.item(on_click=lambda: on_click(summary.number))
+    item = ui.item(on_click=on_click)
     item.props("clickable").mark(f"quote-{summary.number}")
     if selected:
         item.props("active")
@@ -333,7 +341,7 @@ def quote_list_item(
                 with ui.item_label().props("caption lines=1"):
                     ui.html(highlight(first_line, term), tag="span")
                 if hidden is not None:
-                    place, text = hidden
+                    place, text, _revision = hidden
                     with ui.item_label().props("caption lines=2").mark(
                         f"match-{summary.number}"
                     ):
@@ -687,14 +695,20 @@ def totals_foot(totals: QuoteTotals | None) -> None:
 def quote_view(
     quote: Quote,
     on_extend: Callable[[], None],
-    revise: tuple[str, Callable[[], None]] | None = None,
+    on_revise: Callable[[], None] | None = None,
     on_history: Callable[[], None] | None = None,
+    newer: QuoteSummary | None = None,
+    on_newest: Callable[[], None] | None = None,
 ) -> None:
     """A quote that's no longer a draft, read-only.
 
-    `revise` is the Revise button's label and handler, if it has one.
+    `on_revise` is the Revise button's handler, if it has one.
+    `newer` is the newest version, if `quote` is an older one;
+    `on_newest` opens it.
     """
     quote_heading(f"{name_of(quote)} ({quote.status})", on_history)
+    if newer is not None:
+        older_version_banner(newer, on_newest)
     if quote.issued_on and quote.valid_until:
         ui.label(
             f"Issued {format_numeric_date(quote.issued_on)} · "
@@ -710,9 +724,8 @@ def quote_view(
     with ui.row():
         if quote.status in (Status.QUOTED, Status.EXPIRED):
             ui.button("Extend", icon="event", on_click=on_extend).props("outline")
-        if revise is not None:
-            label, on_revise = revise
-            ui.button(label, icon="edit_note", on_click=on_revise).props(
+        if on_revise is not None:
+            ui.button("Revise", icon="edit_note", on_click=on_revise).props(
                 "outline"
             ).mark("revise")
     # A quoted quote shows its frozen figures, not ones worked out again.
@@ -730,6 +743,25 @@ def quote_view(
     totals_foot(shown_quote_totals(quote))
     if quote.notes:
         ui.label(quote.notes)
+
+
+def older_version_banner(newest: QuoteSummary, on_open: Callable[[], None]) -> None:
+    """Says the quote shown is an older version, with a button to the
+    newest, so it isn't taken for the current one in a hurry."""
+    name = f"R{newest.revision}"  # never the original: it's the oldest
+    # inline-actions: the button beside the text, not on a line below.
+    with ui.element("q-banner").props("dense rounded inline-actions").classes(
+        "w-full bg-amber-2"
+    ).mark("older-version") as banner:
+        with banner.add_slot("avatar"):
+            ui.icon("history", size="sm", color="amber-10")
+        ui.label(f"This is an older version. {name} ({newest.status}) is the newest.")
+        with banner.add_slot("action"):
+            # "Go to Draft R2" says it's unfinished, as the text does.
+            draft = "Draft " if newest.status is Status.DRAFT else ""
+            ui.button(f"Go to {draft}{name}", on_click=on_open).props(
+                "flat no-caps"
+            ).mark("go-to-newest")
 
 
 def _checked_item(n: int, line: LineInputs) -> LineItem:
