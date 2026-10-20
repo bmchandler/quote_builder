@@ -11,7 +11,10 @@ work first, and as a portfolio piece second.
 
 In scope:
 
-- One user, one business, on one machine. No accounts or sign-in.
+- One user, on one machine. No accounts or sign-in.
+- One or more businesses (decided 2026-10-20): gig workers often run
+  a main business and a side one or two. Each has its own quotes,
+  clients, catalog, and settings; nothing is shared between them.
 - Linux as the target system, run as a native desktop window (NiceGUI's
   native mode), not in a browser (decided 2026-10-17). macOS and
   Windows aren't targeted or tested. The window is pywebview on GTK
@@ -19,13 +22,13 @@ In scope:
   `-dev` packages (decided 2026-10-18; see DEVELOPMENT.md): no Qt, and
   no venv reaching system site-packages.
 - Local storage in SQLite.
-- A business profile, clients, a catalog of reusable services, and
-  quotes made of line items.
+- Business details and settings, clients, a catalog of reusable
+  services, and quotes made of line items.
 - Tracking each quote's status.
 
 Out of scope:
 
-- More than one user or business, and syncing between machines.
+- More than one user, and syncing between machines.
 - Installers or packaging beyond what uv gives.
 - Sending email from the app.
 
@@ -54,8 +57,18 @@ Future (not now):
 Money is held as a whole number of cents, never as a float; amounts
 are worked out with `Decimal` and rounded to the cent where shown.
 
-- **Business profile** (one): name, contact details, logo, default
-  tax rate, and terms printed at the foot of each quote.
+- **Business** (one or more): name, phone, email, website, address
+  (one field, as typed), terms printed at the foot of each quote, how
+  many days a new quote is valid for (30 to start), how many days
+  Extend offers first, and later a logo
+  (with printing) and default tax rate (with tax rates). Every detail
+  is optional, the name too (decided 2026-10-20): work often starts
+  before a business has a legal name, and software that won't start
+  without one is a common irritation. An unnamed business is made on
+  first start, filled in later from Settings. A quoted quote will
+  keep a copy of its business's details as they were (as with its
+  figures), so a later change doesn't alter what a client was given;
+  to give a client new details, revise the quote.
 - **Client**: name, email, phone, address.
 - **Tax rate**: a name (`Home county`) and its parts, each a name and a
   percent (State 4.75%, County 1.5%, City 1%); its combined rate is
@@ -88,8 +101,8 @@ line typed by hand works as now, and a quoted quote's figures freeze as
 below. A tax category per item (parts, food, services) instead of
 taxable yes or no is a later option, for states that tax such groups
 differently. A quote shows one Tax line; tax by part (state, local) is
-an option, as the parts are kept. Built with the catalog and business
-profile steps.
+an option, as the parts are kept. Built with the catalog and tax
+rate steps.
 
 Discounts are per line item, as an amount or a percent (decided
 2026-10-17); a line's tax is worked out on its discounted amount.
@@ -203,7 +216,11 @@ Built (as of 2026-10-20), each with tests:
 - Quote numbers (quote_numbers.py).
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
   line items, saving changes to a draft (lines replaced), loading one
-  back, and listing quotes with search.
+  back, and listing quotes with search. A business and its settings
+  (business.py): one so far, made on first start, holding only days
+  valid yet. The table is shaped for several businesses ahead of
+  time (agreed 2026-10-20): they're certain to come, and moving
+  settings into it later would be work undone.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -217,7 +234,15 @@ Built (as of 2026-10-20), each with tests:
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
     you type, matches the number, the notes, or any line's description,
-    in any case, in any version (decided 2026-10-19).
+    in any case, in any version (decided 2026-10-19). The list
+    scrolls on its own, below Search and New Quote.
+  - Settings (decided 2026-10-20): at the bottom of the side panel,
+    below a divider, a Settings button opens the business's settings
+    on the right, with Save: so far "Quotes valid for (days)", which
+    Mark Quoted's valid-through starts from (a whole number above 0).
+    Leaving it with unsaved changes asks first, as a quote's form
+    does. The title at the top left stays "Quote Builder" (maybe with
+    a version later).
   - Search matches are highlighted (decided 2026-10-19), in a soft
     amber, in the row's number and first line. A match the row doesn't
     show (notes, a later line, an older version) adds a small italic
@@ -245,8 +270,8 @@ Built (as of 2026-10-20), each with tests:
     quote and its dialogs show `10/19/2026`. Date fields take
     `11/18/2026` (or `2026-11-18`), typed or picked from a calendar.
   - Marking a draft Quoted (decided 2026-10-19): Mark Quoted, beside
-    Save, asks for the date issued (today) and valid-through (30 days
-    on, until the business profile makes it a setting). Valid-through
+    Save, asks for the date issued (today) and valid-through (the
+    business's days valid on, 30 to start). Valid-through
     can't be before the date issued, and a quote needs a line.
     Confirming saves the form's changes and marks it Quoted together,
     freezing its figures (see Data); it then opens read-only, showing
@@ -304,4 +329,21 @@ Built (as of 2026-10-20), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. The business profile and tax rates, clients, then the catalog.
+1. Extend's default (planned 2026-10-20): a setting for the days
+   Extend offers first. 30 or 7 picks that choice; any other number
+   picks Custom with its date filled in. Unset, Extend starts at 30
+   days, as now.
+2. Business details on quotes (planned 2026-10-20): name, phone,
+   email, website, and address in Settings, shown on each quote and
+   copied onto it when it's marked Quoted (see Data). Where on the
+   quote: to ask before building.
+3. Terms: in Settings, shown at the foot of each quote, frozen the
+   same way.
+4. More than one business (planned 2026-10-20): quotes belong to a
+   business, and the app shows one at a time (list and search cover
+   only its quotes). Beside Settings, the current business's name
+   (or "Unnamed business") with a menu of the others and "Add
+   business…". Later, with only one business, the top left could
+   offer its name or a banner image instead of "Quote Builder".
+5. Tax rates (and the business's default), clients, then the
+   catalog.

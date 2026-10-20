@@ -1,7 +1,7 @@
-"""SQLite storage for quotes, with plain sqlite3.
+"""SQLite storage for quotes and businesses, with plain sqlite3.
 
 All SQL lives here and in schema.sql; the rest of the app works with
-the dataclasses in quotes.py.
+the dataclasses in quotes.py and business.py.
 """
 
 import sqlite3
@@ -12,6 +12,7 @@ from decimal import Decimal
 from importlib.resources import files
 from pathlib import Path
 
+from quote_builder.business import Business
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
     Extension,
@@ -55,6 +56,35 @@ def connect(path: Path | str) -> sqlite3.Connection:
     conn.autocommit = False
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def current_business(conn: sqlite3.Connection) -> Business:
+    """The business the app shows: for now the only one, made with the
+    default settings the first time it's asked for."""
+    with conn:
+        # INSERT ... SELECT inserts a row only where the SELECT finds one;
+        # a NULL id is given the next free one.
+        conn.execute(
+            """
+            INSERT INTO businesses (id)
+            SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM businesses)
+            """
+        )
+        row = conn.execute(
+            "SELECT id, valid_days FROM businesses ORDER BY id LIMIT 1"
+        ).fetchone()
+    return Business(**dict(row))  # the columns are named as its fields
+
+
+def save_business(conn: sqlite3.Connection, business: Business) -> None:
+    """Save changes to a business already stored."""
+    with conn:
+        conn.execute(
+            """
+            UPDATE businesses SET valid_days = :valid_days WHERE id = :id
+            """,
+            vars(business),
+        )
 
 
 def save_new_quote(

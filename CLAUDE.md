@@ -76,7 +76,8 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
 ## Code notes
 
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
-  `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`), money.py
+  `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`),
+  business.py (`Business`: a business's settings), money.py
   and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
   search.py (search matches: escaped HTML with `<mark>`, excerpts),
@@ -109,10 +110,12 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   (`landing`, `quote_editor`, `quote_view`) and refreshes the list;
   `new_revision` marks a revision draft not stored yet (saved with
   `save_revision`, or `mark_quoted(..., new_revision=True)`).
-  `quote_editor` returns an `Editor`: `has_unsaved_changes` (form
-  state compared with what it opened with) and `search_changed`
-  (tints matching fields; the form is never redrawn for a search,
-  which would drop its edits). The side panel is
+  `quote_editor` and `business_settings` (shown by `show_settings`)
+  return an `Editor`: `name` (for the discard question),
+  `has_unsaved_changes` (form state compared with what it opened
+  with), and `search_changed` (tints matching fields; a form is
+  never redrawn for a search, which would drop its edits). The side
+  panel is
   `ui.left_drawer` with `behavior=desktop` (Quasar's default turns it
   into a pop-over below 1024 pixels; the window is 1000), 350 wide.
   To try another width, change the prop: restyling the drawer in the

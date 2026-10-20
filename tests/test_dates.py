@@ -8,6 +8,7 @@ from quote_builder.dates import (
     format_date,
     format_numeric_date,
     parse_date,
+    parse_days,
 )
 
 
@@ -43,8 +44,20 @@ def test_format_numeric_date():
     assert format_numeric_date(date(2026, 1, 8)) == "01/08/2026"
 
 
-def test_default_valid_until_is_30_days_on():
-    assert default_valid_until(date(2026, 10, 19)) == date(2026, 11, 18)
+def test_default_valid_until_is_the_days_on():
+    assert default_valid_until(date(2026, 10, 19), 30) == date(2026, 11, 18)
+    assert default_valid_until(date(2026, 10, 19), 14) == date(2026, 11, 2)
+
+
+@pytest.mark.parametrize(("text", "days"), [("30", 30), (" 7 ", 7), ("045", 45)])
+def test_parse_days(text, days):
+    assert parse_days(text) == days
+
+
+@pytest.mark.parametrize("text", ["", "0", "-5", "7.5", "thirty", "²"])
+def test_parse_days_refuses(text):
+    with pytest.raises(ValueError, match="Days must be a whole number above 0"):
+        parse_days(text)
 
 
 def test_extended_from_a_date_still_to_come():

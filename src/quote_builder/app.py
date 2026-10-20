@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 from nicegui import ui
 
+from quote_builder.business import Business
 from quote_builder.data_folder import data_folder
 from quote_builder.dates import (
     default_valid_until,
@@ -19,6 +20,7 @@ from quote_builder.dates import (
     format_date,
     format_numeric_date,
     parse_date,
+    parse_days,
 )
 from quote_builder.money import (
     format_discount,
@@ -42,12 +44,14 @@ from quote_builder.quotes import (
 from quote_builder.storage import (
     NotExtendable,
     connect,
+    current_business,
     expire_overdue,
     extend_quote,
     list_quotes,
     list_versions,
     load_quote,
     mark_quoted,
+    save_business,
     save_draft,
     save_new_quote,
     save_revision,
@@ -72,7 +76,7 @@ def quote_page(
 
     def root() -> None:
         current: Quote | None = None  # the quote on the right, if any
-        editor: Editor | None = None  # its form, if it's a draft
+        editor: Editor | None = None  # the form on the right, if any
 
         def search_term() -> str:
             return (search.value or "").strip()
@@ -121,6 +125,21 @@ def quote_page(
                     )
             quote_list.refresh()
 
+        def show_settings() -> None:
+            """Show the business's settings on the right."""
+            nonlocal current, editor
+            current = None
+            body.clear()
+            with body:
+                editor = business_settings(
+                    conn, current_business(conn), on_saved=show_settings
+                )
+            quote_list.refresh()  # no quote highlighted
+
+        async def open_settings() -> None:
+            if await may_leave():
+                show_settings()
+
         def search_changed() -> None:
             """Matches on the open quote follow the search, as the list's do."""
             if editor is not None:
@@ -151,7 +170,7 @@ def quote_page(
             """True if there's nothing unsaved, or the user lets it go."""
             if editor is None or not editor.has_unsaved_changes():
                 return True
-            return await confirm_discard(name_of(current))
+            return await confirm_discard(editor.name)
 
         async def new_quote() -> None:
             if await may_leave():
@@ -235,7 +254,13 @@ def quote_page(
                             hidden=hidden,
                         )
 
-            quote_list()
+            # The list scrolls on its own, so Settings stays at the bottom.
+            with ui.column().classes("w-full grow min-h-0 overflow-y-auto no-wrap"):
+                quote_list()
+            ui.separator()
+            ui.button("Settings", icon="settings", on_click=open_settings).props(
+                "flat no-caps"
+            ).mark("settings")
 
         body = ui.column().classes("w-full")
 
@@ -316,10 +341,50 @@ async def confirm_discard(name: str) -> bool:
     return answer is True
 
 
+class Editor(NamedTuple):
+    """What the page needs from a form on the right, once drawn."""
+
+    name: str  # what it edits, for "Changes to … haven't been saved."
+    has_unsaved_changes: Callable[[], bool]
+    search_changed: Callable[[str], None]  # tints fields matching the term
+
+
 def landing() -> None:
     """The right side before a quote is opened."""
     ui.label("Pick a quote on the left, or start a new one.").classes(
         "text-grey-7"
+    )
+
+
+def business_settings(
+    conn: sqlite3.Connection, business: Business, on_saved: Callable[[], None]
+) -> Editor:
+    """A form for the business's settings; `on_saved` runs once they're
+    saved."""
+    ui.label("Settings").classes("text-h6").mark("heading")
+    valid_days = (
+        ui.input("Quotes valid for (days)", value=str(business.valid_days))
+        .props('hint="Mark Quoted starts valid-through this many days on"')
+        .classes("w-96")
+        .mark("business-valid-days")
+    )
+
+    def save() -> None:
+        try:
+            days = parse_days(valid_days.value)
+        except ValueError as problem:
+            ui.notify(str(problem), type="negative")
+            return
+        save_business(conn, replace(business, valid_days=days))
+        ui.notify("Settings saved")
+        on_saved()
+
+    ui.button("Save", on_click=save).classes("mt-4")
+
+    # Saving shows the settings again, so this is also the saved state.
+    opened_with = valid_days.value
+    return Editor(
+        "the settings", lambda: valid_days.value != opened_with, lambda term: None
     )
 
 
@@ -442,13 +507,6 @@ class LineInputs:
         )
 
 
-class Editor(NamedTuple):
-    """What the page needs from a draft's form, once drawn."""
-
-    has_unsaved_changes: Callable[[], bool]
-    search_changed: Callable[[str], None]  # tints fields matching the term
-
-
 # A field holding the search term. An input can't highlight part of its
 # text, so the whole field is tinted, in the list's amber.
 MATCHING_FIELD = "bg-amber-100"
@@ -568,7 +626,8 @@ def quote_editor(
         if not changed.line_items:
             ui.notify("Add a line before marking it quoted", type="negative")
             return
-        dates = await ask_quoted_dates(name_of(changed), today())
+        valid_days = current_business(conn).valid_days
+        dates = await ask_quoted_dates(name_of(changed), today(), valid_days)
         if dates is None:
             return
         # Saves the form's changes too, in the same transaction, and
@@ -602,11 +661,14 @@ def quote_editor(
     # Saving shows the quote again in a new form, so this is also the
     # state as last saved. Changes undone by hand count as no change.
     opened_with = form_state()
-    return Editor(lambda: form_state() != opened_with, search_changed)
+    return Editor(name_of(quote), lambda: form_state() != opened_with, search_changed)
 
 
-async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
-    """Ask for the issued and valid-through dates to mark `name` quoted.
+async def ask_quoted_dates(
+    name: str, today: date, valid_days: int
+) -> tuple[date, date] | None:
+    """Ask for the issued and valid-through dates to mark `name` quoted;
+    valid through starts `valid_days` on.
 
     None if the user cancels.
     """
@@ -614,7 +676,7 @@ async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
         ui.label(f"Mark {name} quoted?").classes("text-h6")
         issued = date_input("Issued", today, "issued-on")
         valid = date_input(
-            "Valid through", default_valid_until(today), "valid-until"
+            "Valid through", default_valid_until(today, valid_days), "valid-until"
         )
         ui.label("It can't be edited after this; changes become revisions.")
 

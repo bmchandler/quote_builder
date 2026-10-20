@@ -14,8 +14,10 @@ from quote_builder.app import quote_page, short_date
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
     connect,
+    current_business,
     load_quote,
     mark_quoted,
+    save_business,
     save_new_quote,
     save_revision,
 )
@@ -525,6 +527,17 @@ async def test_dates_default_to_today_and_30_days_on(user):
 
     assert value(user.find(marker="issued-on")) == "10/19/2026"
     assert value(user.find(marker="valid-until")) == "11/18/2026"
+
+
+async def test_valid_through_starts_the_business_days_on(user, conn):
+    save_business(conn, replace(current_business(conn), valid_days=14))
+    await reload(user)
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Mark Quoted").click()
+    await user.should_see(QUOTE_QUESTION)
+
+    assert value(user.find(marker="valid-until")) == "11/02/2026"
 
 
 async def test_cancel_leaves_the_draft(user, conn):
@@ -1055,3 +1068,42 @@ async def test_no_highlighting_without_a_search(user, conn):
     await reload(user)
     await user.should_see("No lines")
     await user.should_not_see(kind=ui.html)
+
+
+async def open_settings(user):
+    user.find(marker="settings").click()
+    await eventually(lambda: heading(user) == "Settings")
+
+
+async def test_settings_start_at_30_days(user):
+    await open_settings(user)
+    assert value(user.find(marker="business-valid-days")) == "30"
+
+
+async def test_save_settings(user, conn):
+    await open_settings(user)
+    user.find(marker="business-valid-days").clear().type("14")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Settings saved")
+    assert current_business(conn).valid_days == 14
+    await new_quote(user)  # saved: leaves without asking
+    await user.should_not_see(DISCARD_QUESTION)
+
+
+async def test_settings_refuse_days_that_dont_read(user, conn):
+    await open_settings(user)
+    user.find(marker="business-valid-days").clear().type("two weeks")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Days must be a whole number above 0, like 30")
+    assert current_business(conn).valid_days == 30
+
+
+async def test_leaving_changed_settings_asks(user):
+    await open_settings(user)
+    user.find(marker="business-valid-days").clear().type("14")
+    user.find("New Quote").click()
+
+    await user.should_see(DISCARD_QUESTION)
+    await user.should_see("Changes to the settings haven't been saved.")

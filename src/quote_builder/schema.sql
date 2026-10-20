@@ -6,6 +6,14 @@
 -- decimals (quantities, percents) are TEXT, read back as Decimal; dates
 -- are TEXT in ISO 8601 (2026-10-18), which also sorts correctly.
 
+-- A business the user quotes for, and its settings. One so far; the
+-- table is shaped for several, as the plan has them.
+CREATE TABLE IF NOT EXISTS businesses (
+    id         INTEGER PRIMARY KEY,
+    -- Days from issue to a new quote's valid-through date.
+    valid_days INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS quotes (
     id          INTEGER PRIMARY KEY,
     number      TEXT    NOT NULL,                -- Q-7KQ-M9XD

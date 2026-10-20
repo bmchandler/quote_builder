@@ -22,12 +22,14 @@ from quote_builder.storage import (
     NotADraft,
     NotExtendable,
     connect,
+    current_business,
     expire_overdue,
     extend_quote,
     list_quotes,
     list_versions,
     load_quote,
     mark_quoted,
+    save_business,
     save_draft,
     save_new_quote,
     save_revision,
@@ -545,3 +547,22 @@ def test_search_texts_of_every_version_newest_first(conn):
 
 def test_search_texts_of_no_quotes(conn):
     assert search_texts(conn, []) == {}
+
+
+def test_a_business_is_made_the_first_time(conn):
+    business = current_business(conn)
+    assert business.id is not None
+    assert business.valid_days == 30
+    assert current_business(conn) == business  # not a second one
+
+
+def test_save_business(conn):
+    business = replace(current_business(conn), valid_days=14)
+    save_business(conn, business)
+    assert current_business(conn) == business
+
+
+def test_business_valid_days_must_be_above_zero(conn):
+    business = replace(current_business(conn), valid_days=0)
+    with pytest.raises(sqlite3.IntegrityError):
+        save_business(conn, business)

@@ -39,6 +39,7 @@ All in `src/quote_builder/`:
 - `app.py`: the window (NiceGUI), and `main`, the `quote-builder`
   command.
 - `quotes.py`: quotes and line items as dataclasses.
+- `business.py`: a business and its settings.
 - `money.py`: reading and showing amounts, quantities, percents, and
   discounts.
 - `dates.py`: reading and showing dates, and valid-through dates.

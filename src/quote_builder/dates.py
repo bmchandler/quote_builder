@@ -7,8 +7,8 @@ valid through 11/18/2026 expires on 11/19/2026.
 
 from datetime import date, datetime, timedelta
 
-# How long a quote is good for unless the user picks another date. The
-# business profile can make this a setting later.
+# How long a quote is good for unless the user picks another date: a
+# new business's setting until changed.
 VALID_DAYS = 30
 
 
@@ -41,8 +41,21 @@ def format_numeric_date(day: date) -> str:
     return f"{day:%m/%d/%Y}"
 
 
-def default_valid_until(issued_on: date) -> date:
-    return issued_on + timedelta(days=VALID_DAYS)
+def default_valid_until(issued_on: date, days: int) -> date:
+    """`days` after the date issued."""
+    return issued_on + timedelta(days=days)
+
+
+def parse_days(text: str) -> int:
+    """A number of days, a whole number above zero: `30`.
+
+    Raises ValueError, with a message for the user, for anything else.
+    """
+    cleaned = text.strip()
+    # isascii too: isdigit is also true for "²", which int() refuses.
+    if not (cleaned.isascii() and cleaned.isdigit()) or int(cleaned) == 0:
+        raise ValueError("Days must be a whole number above 0, like 30")
+    return int(cleaned)
 
 
 def extended_until(valid_until: date, today: date, days: int) -> date:
