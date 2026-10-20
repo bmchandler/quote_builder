@@ -13,6 +13,7 @@ from quote_builder.quotes import (
     QuoteSummary,
     QuoteTotals,
     Status,
+    revision_draft,
 )
 from quote_builder.storage import (
     MAX_NUMBER_TRIES,
@@ -23,10 +24,12 @@ from quote_builder.storage import (
     expire_overdue,
     extend_quote,
     list_quotes,
+    list_versions,
     load_quote,
     mark_quoted,
     save_draft,
     save_new_quote,
+    save_revision,
 )
 
 
@@ -205,6 +208,8 @@ def test_list_quotes_last_changed_first(conn):
         updated_at=at(2),
         # $45 + ($75 - 10%) + ($18.99 - $2 + 7.25% tax).
         total_cents=4500 + 6750 + 1699 + 123,
+        issued_on=date(2026, 10, 18),
+        valid_until=date(2026, 11, 17),
     )
     assert summaries[1].first_line is None
     assert summaries[1].total_cents == 0
@@ -418,3 +423,95 @@ def test_extend_refuses_a_quote_changed_since_loaded(conn):
     with pytest.raises(NotExtendable):
         extend_quote(conn, quoted, date(2026, 11, 30), date(2026, 11, 10))
     assert len(load_quote(conn, quoted.number).extensions) == 1
+
+
+def test_revision_draft_keeps_lines_and_notes_only(conn):
+    quoted = quoted_lawn(conn)
+    extended = extend_quote(conn, quoted, date(2026, 11, 25), date(2026, 11, 10))
+    draft = revision_draft(extended, 1)
+    assert (draft.number, draft.revision, draft.status) == (
+        "Q-7KQ-M9XD",
+        1,
+        Status.DRAFT,
+    )
+    assert draft.notes == quoted.notes
+    assert draft.line_items == lawn_quote().line_items  # no frozen figures
+    assert (draft.issued_on, draft.valid_until, draft.frozen) == (None, None, None)
+    assert draft.extensions == []
+
+
+def test_save_a_revision(conn):
+    quoted = quoted_lawn(conn)
+    draft = replace(revision_draft(quoted, 1), notes="Back yard only.")
+    save_revision(conn, draft)
+    assert load_quote(conn, "Q-7KQ-M9XD", 1) == draft
+    assert load_quote(conn, "Q-7KQ-M9XD") == draft  # the newest
+    assert load_quote(conn, "Q-7KQ-M9XD", 0) == quoted  # still Quoted
+
+
+def test_one_draft_per_quote(conn):
+    quoted = quoted_lawn(conn)
+    save_revision(conn, revision_draft(quoted, 1))
+    with pytest.raises(sqlite3.IntegrityError):
+        save_revision(conn, revision_draft(quoted, 2))
+
+
+def test_quoting_a_revision_supersedes_the_one_before(conn):
+    quoted = quoted_lawn(conn)
+    draft = revision_draft(quoted, 1)
+    revised = mark_quoted(
+        conn, draft, date(2026, 11, 1), date(2026, 12, 1), new_revision=True
+    )
+    assert load_quote(conn, "Q-7KQ-M9XD", 1) == revised
+    assert status_of_version(conn, 0) is Status.SUPERSEDED
+
+
+def test_quoting_a_saved_revision_supersedes_too(conn):
+    quoted = quoted_lawn(conn)
+    expire_overdue(conn, date(2026, 12, 1))  # Expired versions are too
+    save_revision(conn, revision_draft(quoted, 1))
+    mark_quoted(
+        conn, load_quote(conn, "Q-7KQ-M9XD"), date(2026, 12, 1), date(2026, 12, 31)
+    )
+    assert status_of_version(conn, 0) is Status.SUPERSEDED
+    assert status_of_version(conn, 1) is Status.QUOTED
+
+
+def status_of_version(conn, revision):
+    return load_quote(conn, "Q-7KQ-M9XD", revision).status
+
+
+def test_list_shows_each_quotes_newest_version(conn):
+    quoted = quoted_lawn(conn)
+    save_revision(
+        conn,
+        replace(revision_draft(quoted, 1), line_items=[LineItem("Edge", Decimal(1), 1500)]),
+    )
+    [summary] = list_quotes(conn)
+    assert (summary.number, summary.revision, summary.status) == (
+        "Q-7KQ-M9XD",
+        1,
+        Status.DRAFT,
+    )
+    assert summary.first_line == "Edge"
+
+
+def test_search_matches_any_version(conn):
+    quoted = quoted_lawn(conn)  # has a "Trim hedges" line
+    save_revision(
+        conn,
+        replace(revision_draft(quoted, 1), line_items=[LineItem("Edge", Decimal(1), 1500)]),
+    )
+    [summary] = list_quotes(conn, "hedges")
+    assert summary.revision == 1  # the row still shows the newest
+
+
+def test_list_versions_newest_first(conn):
+    quoted = quoted_lawn(conn)
+    save_revision(conn, revision_draft(quoted, 1))
+    versions = list_versions(conn, "Q-7KQ-M9XD")
+    assert [(v.revision, v.status) for v in versions] == [
+        (1, Status.DRAFT),
+        (0, Status.QUOTED),
+    ]
+    assert (versions[1].issued_on, versions[1].valid_until) == (ISSUED, VALID_UNTIL)

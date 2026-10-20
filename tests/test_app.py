@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -10,8 +11,14 @@ from nicegui import ui
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
-from quote_builder.quotes import LineItem, Quote, Status
-from quote_builder.storage import connect, load_quote, mark_quoted, save_new_quote
+from quote_builder.quotes import LineItem, Quote, Status, revision_draft
+from quote_builder.storage import (
+    connect,
+    load_quote,
+    mark_quoted,
+    save_new_quote,
+    save_revision,
+)
 
 
 @pytest.fixture
@@ -694,3 +701,134 @@ async def test_cancel_extending_changes_nothing(user, conn):
 async def test_draft_has_no_extend_button(user):
     await new_quote(user)
     await user.should_not_see(kind=ui.button, content="Extend")
+
+
+async def start_revising(user, quote):
+    """Open `quote` and click Revise; waits for the revision's form."""
+    await open_saved(user, quote)
+    user.find(marker="revise").click()
+    await eventually(lambda: heading(user) == f"{quote.number}-R1 (New revision)")
+
+
+async def test_revise_opens_a_copy_not_yet_saved(user, conn):
+    saved = quoted(conn)
+    await start_revising(user, saved)
+
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+    assert value(user.find(marker="price-1")) == "$45.00"
+    assert saved_numbers(conn) == [saved.number]  # nothing stored yet
+    assert load_quote(conn, saved.number).status is Status.QUOTED
+
+
+async def test_revise_is_beside_extend(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    [extend] = user.find(kind=ui.button, content="Extend").elements
+    [revise] = user.find(marker="revise").elements
+    assert extend.parent_slot.parent is revise.parent_slot.parent
+    assert extend.id < revise.id  # Extend first, then Revise
+
+
+async def test_save_a_revision(user, conn):
+    saved = quoted(conn)
+    await start_revising(user, saved)
+    user.find(marker="price-1").clear().type("50")
+    user.find("Save").click()
+
+    await user.should_see(f"Saved {saved.number}-R1")
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (Draft)")
+    revision = load_quote(conn, saved.number, 1)
+    assert revision.line_items[0].unit_price_cents == 5000
+    # The list shows one row for the quote: its newest version.
+    await user.should_see(f"{saved.number}-R1 · Draft")
+    await user.should_not_see(f"{saved.number} · Quoted")
+
+
+async def test_leaving_an_unchanged_revision_saves_nothing(user, conn):
+    saved = quoted(conn)
+    await start_revising(user, saved)
+    await new_quote(user)
+
+    await user.should_not_see(DISCARD_QUESTION)
+    assert load_quote(conn, saved.number, 1) is None
+
+
+async def test_mark_a_revision_quoted_supersedes_the_one_before(user, conn):
+    saved = quoted(conn)
+    await start_revising(user, saved)
+    user.find("Mark Quoted").click()
+    await user.should_see(f"Mark {saved.number}-R1 quoted?")
+    user.find(marker="confirm-quoted").click()
+
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (Quoted)")
+    assert load_quote(conn, saved.number, 0).status is Status.SUPERSEDED
+
+
+async def test_older_version_offers_to_open_the_draft(user, conn):
+    saved = quoted(conn)
+    save_revision(conn, revision_draft(saved, 1))
+    await reload(user)
+    await open_version(user, saved.number, 0)
+
+    [button] = user.find(marker="revise").elements
+    assert button.text == "Open Draft R1"
+    user.find(marker="revise").click()
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (Draft)")
+
+
+async def test_superseded_version_has_no_revise_or_extend(user, conn):
+    saved = quoted(conn)
+    mark_quoted(conn, revision_draft(saved, 1), TODAY, VALID_UNTIL, new_revision=True)
+    await reload(user)
+    await open_version(user, saved.number, 0)
+
+    await user.should_see(f"{saved.number} (Superseded)")
+    await user.should_not_see(marker="revise")
+    await user.should_not_see(kind=ui.button, content="Extend")
+
+
+async def test_version_history_lists_versions_newest_first(user, conn):
+    saved = quoted(conn)
+    save_revision(conn, revision_draft(saved, 1))
+    await open_saved(user, saved)  # opens the newest: R1
+    user.find(marker="version-history").click()
+
+    await user.should_see(f"Versions of {saved.number}")
+    await user.should_see("R1 · Draft")
+    await user.should_see("Original · Quoted")
+    await user.should_see("Issued 09/01/2026 · valid through 11/18/2026")
+    # Elements are numbered in the order drawn: R1's row comes first.
+    [original] = user.find(marker="version-0").elements
+    [r1] = user.find(marker="version-1").elements
+    assert r1.id < original.id
+
+
+async def test_no_version_history_with_one_version(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    await user.should_not_see(marker="version-history")
+
+
+async def test_search_finds_a_quote_by_an_older_version(user, conn):
+    saved = quoted(conn)  # "Mow lawn"
+    save_revision(
+        conn,
+        replace(
+            revision_draft(saved, 1),
+            line_items=[LineItem("Edge walks", Decimal(1), 1500)],
+        ),
+    )
+    await reload(user)
+    user.find(marker="search").type("mow")
+    await user.should_see(f"{saved.number}-R1 · Draft")
+
+
+async def open_version(user, number, revision):
+    """Open a version through the open quote's Version history."""
+    user.find(marker=f"quote-{number}").click()
+    await user.should_see(marker="version-history")
+    user.find(marker="version-history").click()
+    await user.should_see(f"Versions of {number}")
+    user.find(marker=f"version-{revision}").click()
+    name = number if revision == 0 else f"{number}-R{revision}"
+    await eventually(lambda: (heading(user) or "").startswith(f"{name} ("))

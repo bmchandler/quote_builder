@@ -66,17 +66,24 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   (`_line_items_of`), not one per quote. Timestamps: UTC,
   `isoformat(timespec="seconds")`, so the text sorts by time.
   `save_new_quote`/`save_draft` take `now` and `draw_number` for tests.
+  A quote is a number plus revision (0, then R1, R2: `version_name`);
+  `load_quote(conn, number)` gives the newest version, and the list
+  shows only the newest per number. Check-and-change in one UPDATE
+  (status, or the old date, in the WHERE clause) rather than reading
+  first.
 - Totals are computed from lines whenever shown, never stored, until
   `mark_quoted` freezes them (`frozen` on `Quote` and `LineItem`;
   REQUIREMENTS.md, Data). Show figures with `shown_line_totals` /
   `shown_quote_totals`, which prefer the frozen ones.
 - app.py: `quote_page(conn, today=date.today)` returns the root
   function for `ui.run(root)`; tests pass a temp database and a fixed
-  `today`. In `root`, handlers are
-  defined before the layout that calls them. `show(quote)` swaps the
-  right side (`landing`, `quote_editor`, `quote_view`) and refreshes
-  the list. `quote_editor` returns a has-unsaved-changes function
-  (form state compared with what it opened with). The side panel is
+  `today`. In `root`, handlers are defined before the layout that
+  calls them. `show(quote, new_revision=False)` swaps the right side
+  (`landing`, `quote_editor`, `quote_view`) and refreshes the list;
+  `new_revision` marks a revision draft not stored yet (saved with
+  `save_revision`, or `mark_quoted(..., new_revision=True)`).
+  `quote_editor` returns a has-unsaved-changes function (form state
+  compared with what it opened with). The side panel is
   `ui.left_drawer` with `behavior=desktop` (Quasar's default turns it
   into a pop-over below 1024 pixels; the window is 1000).
 - NiceGUI quirks met: `props("active=True")` passes the text "True"

@@ -27,17 +27,28 @@ from quote_builder.money import (
     parse_percent,
     parse_quantity,
 )
-from quote_builder.quotes import LineItem, Quote, QuoteSummary, QuoteTotals, Status
+from quote_builder.quotes import (
+    REVISABLE,
+    LineItem,
+    Quote,
+    QuoteSummary,
+    QuoteTotals,
+    Status,
+    revision_draft,
+    version_name,
+)
 from quote_builder.storage import (
     NotExtendable,
     connect,
     expire_overdue,
     extend_quote,
     list_quotes,
+    list_versions,
     load_quote,
     mark_quoted,
     save_draft,
     save_new_quote,
+    save_revision,
 )
 from quote_builder.totals import (
     line_totals,
@@ -61,43 +72,86 @@ def quote_page(
         has_unsaved_changes: Callable[[], bool] = lambda: False
 
         # Handlers first: the list below calls open_quote as it's drawn.
-        def show(quote: Quote | None) -> None:
+        def show(quote: Quote | None, new_revision: bool = False) -> None:
+            """Show `quote` on the right; `new_revision` if it's a
+            revision draft not saved yet."""
             nonlocal current, has_unsaved_changes
             current = quote
             has_unsaved_changes = lambda: False
+            versions = []
+            if quote is not None and quote.number is not None:
+                versions = list_versions(conn, quote.number)
+            # The link shows once there's more than one version, counting
+            # a new revision that isn't saved yet.
+            on_history = None
+            if len(versions) + new_revision > 1:
+                on_history = lambda: version_history(quote)
             body.clear()
             with body:
                 if quote is None:
                     landing()
                 elif quote.status is Status.DRAFT:
                     has_unsaved_changes = quote_editor(
-                        conn, quote, on_saved=show, today=today
+                        conn,
+                        quote,
+                        on_saved=show,
+                        today=today,
+                        new_revision=new_revision,
+                        on_history=on_history,
                     )
                 else:
-                    quote_view(quote, on_extend=lambda: extend(quote))
+                    quote_view(
+                        quote,
+                        on_extend=lambda: extend(quote),
+                        revise=revise_action(quote, versions),
+                        on_history=on_history,
+                    )
             quote_list.refresh()
+
+        def revise_action(
+            quote: Quote, versions: list[QuoteSummary]
+        ) -> tuple[str, Callable[[], None]] | None:
+            """The Revise button's label and handler for `quote`, if any.
+
+            Only the newest version can be revised; on an older one, an
+            unfinished revision draft is opened instead.
+            """
+            newest = versions[0]
+            if newest.status is Status.DRAFT and newest.revision != quote.revision:
+                return (
+                    f"Open Draft R{newest.revision}",
+                    lambda: open_quote(quote.number, newest.revision),
+                )
+            if newest.revision == quote.revision and quote.status in REVISABLE:
+                return ("Revise", lambda: show(
+                    revision_draft(quote, newest.revision + 1), new_revision=True
+                ))
+            return None
 
         async def may_leave() -> bool:
             """True if there's nothing unsaved, or the user lets it go."""
             if not has_unsaved_changes():
                 return True
-            name = current.number if current and current.number else "this new quote"
-            return await confirm_discard(name)
+            return await confirm_discard(name_of(current))
 
         async def new_quote() -> None:
             if await may_leave():
                 show(Quote())
 
-        async def open_quote(number: str) -> None:
-            if current is not None and current.number == number:
-                return  # already open
-            if not await may_leave():
-                return
+        async def open_quote(number: str, revision: int | None = None) -> None:
+            """Open a version of a quote: its newest, if `revision` is None."""
             expire_overdue(conn, today())
-            quote = load_quote(conn, number)
+            quote = load_quote(conn, number, revision)
             if quote is None:  # deleted since the list was drawn
                 ui.notify(f"No quote {number}", type="warning")
                 quote_list.refresh()
+                return
+            if current is not None and (current.number, current.revision) == (
+                quote.number,
+                quote.revision,
+            ):
+                return  # already open
+            if not await may_leave():
                 return
             show(quote)
 
@@ -105,10 +159,16 @@ def quote_page(
             extended = await ask_extension(conn, quote, today())
             if extended is not None:
                 ui.notify(
-                    f"{extended.number} valid through "
+                    f"{name_of(extended)} valid through "
                     f"{format_numeric_date(extended.valid_until)}"
                 )
                 show(extended)
+
+        async def version_history(quote: Quote) -> None:
+            versions = list_versions(conn, quote.number)
+            revision = await ask_version(quote.number, versions, quote.revision)
+            if revision is not None:
+                await open_quote(quote.number, revision)
 
         # behavior=desktop: always beside the quote. Otherwise Quasar turns
         # it into a pop-over below 1024 pixels wide (the window is 1000).
@@ -135,7 +195,7 @@ def quote_page(
                             summary,
                             selected=current is not None
                             and summary.number == current.number,
-                            on_click=open_quote,
+                            on_click=lambda number: open_quote(number),
                         )
 
             quote_list()
@@ -145,6 +205,60 @@ def quote_page(
         show(None)
 
     return root
+
+
+def name_of(quote: Quote) -> str:
+    """`Q-7KQ-M9XD-R1`, or "this new quote" before it has a number."""
+    if quote.number is None:
+        return "this new quote"
+    return version_name(quote.number, quote.revision)
+
+
+def quote_heading(text: str, on_history: Callable[[], None] | None) -> None:
+    """The quote's heading, with a Version history link at the right."""
+    with ui.row().classes("w-full items-center justify-between no-wrap"):
+        ui.label(text).classes("text-h6").mark("heading")
+        if on_history is not None:
+            ui.button("Version history", icon="history", on_click=on_history).props(
+                "flat dense no-caps"
+            ).mark("version-history")
+
+
+async def ask_version(
+    number: str, versions: list[QuoteSummary], open_revision: int
+) -> int | None:
+    """Ask which version of `number` to open; its revision, or None."""
+    with ui.dialog() as dialog, ui.card().classes("min-w-[28rem]"):
+        ui.label(f"Versions of {number}").classes("text-h6")
+        with ui.list().props("separator").classes("w-full"):
+            for version in versions:
+                item = ui.item(
+                    on_click=lambda revision=version.revision: dialog.submit(revision)
+                )
+                item.props("clickable").mark(f"version-{version.revision}")
+                if version.revision == open_revision:
+                    item.props("active")
+                with item:
+                    with ui.item_section():
+                        rev = version.revision
+                        name = f"R{rev}" if rev else "Original"
+                        ui.item_label(f"{name} · {version.status}")
+                        if version.issued_on and version.valid_until:
+                            detail = (
+                                f"Issued {format_numeric_date(version.issued_on)}"
+                                " · valid through "
+                                f"{format_numeric_date(version.valid_until)}"
+                            )
+                        else:
+                            detail = f"Saved {short_date(version.updated_at)}"
+                        ui.item_label(detail).props("caption")
+                    with ui.item_section().props("side"):
+                        ui.item_label(format_money(version.total_cents))
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Close", on_click=lambda: dialog.submit(None)).props("flat")
+    answer = await dialog
+    dialog.delete()
+    return answer
 
 
 async def confirm_discard(name: str) -> bool:
@@ -182,7 +296,8 @@ def quote_list_item(
         item.props("active")
     with item:
         with ui.item_section():
-            ui.item_label(f"{summary.number} · {summary.status}")
+            name = version_name(summary.number, summary.revision)
+            ui.item_label(f"{name} · {summary.status}")
             ui.item_label(summary.first_line or "No lines").props("caption lines=1")
         with ui.item_section().props("side top"):
             ui.item_label(short_date(summary.updated_at)).props("caption")
@@ -266,13 +381,21 @@ def quote_editor(
     quote: Quote,
     on_saved: Callable[[Quote], None],
     today: Callable[[], date],
+    new_revision: bool = False,
+    on_history: Callable[[], None] | None = None,
 ) -> Callable[[], bool]:
     """A form for a draft, new or saved; `on_saved` gets it once saved.
 
-    Returns a function telling whether the form has unsaved changes.
+    `new_revision` if it's a revision draft not saved yet. Returns a
+    function telling whether the form has unsaved changes.
     """
-    heading = "New Quote" if quote.number is None else f"{quote.number} ({quote.status})"
-    ui.label(heading).classes("text-h6").mark("heading")
+    if quote.number is None:
+        heading = "New Quote"
+    elif new_revision:
+        heading = f"{name_of(quote)} (New revision)"
+    else:
+        heading = f"{name_of(quote)} ({quote.status})"
+    quote_heading(heading, on_history)
     lines_column = ui.column().classes("w-full")
     lines: list[LineInputs] = []  # in order on the quote
     added = 0  # lines ever added, so each gets its own test marker
@@ -332,10 +455,13 @@ def quote_editor(
             return
         if changed.number is None:
             saved = save_new_quote(conn, changed)
+        elif new_revision:
+            save_revision(conn, changed)
+            saved = changed
         else:
             save_draft(conn, changed)
             saved = changed
-        ui.notify(f"Saved {saved.number}")
+        ui.notify(f"Saved {name_of(saved)}")
         on_saved(saved)
 
     async def quote_it() -> None:
@@ -345,13 +471,13 @@ def quote_editor(
         if not changed.line_items:
             ui.notify("Add a line before marking it quoted", type="negative")
             return
-        name = changed.number or "this new quote"
-        dates = await ask_quoted_dates(name, today())
+        dates = await ask_quoted_dates(name_of(changed), today())
         if dates is None:
             return
-        # Saves the form's changes too, in the same transaction.
-        quoted = mark_quoted(conn, changed, *dates)
-        ui.notify(f"{quoted.number} marked quoted")
+        # Saves the form's changes too, in the same transaction, and
+        # supersedes the version before, if any.
+        quoted = mark_quoted(conn, changed, *dates, new_revision=new_revision)
+        ui.notify(f"{name_of(quoted)} marked quoted")
         on_saved(quoted)
 
     with ui.row():
@@ -428,7 +554,7 @@ async def ask_extension(
     # 30 first, as the usual choice (a setting can pick the default later).
     choices = {"30": "30 more days", "7": "7 more days", "custom": "Custom date"}
     with ui.dialog() as dialog, ui.card():
-        ui.label(f"Extend {quote.number}?").classes("text-h6")
+        ui.label(f"Extend {name_of(quote)}?").classes("text-h6")
         through = format_numeric_date(quote.valid_until)
         if quote.status is Status.EXPIRED:
             ui.label(f"Expired; was valid through {through}.")
@@ -464,7 +590,7 @@ async def ask_extension(
             except ValueError as problem:
                 ui.notify(str(problem), type="negative")
             except NotExtendable:
-                ui.notify(f"{quote.number} changed meanwhile; open it again")
+                ui.notify(f"{name_of(quote)} changed meanwhile; open it again")
                 dialog.submit(None)
 
         show_new_date()
@@ -516,9 +642,17 @@ def totals_foot(totals: QuoteTotals | None) -> None:
             ui.label(amount(cents)).classes("text-right" + bold).mark(f"foot-{name}")
 
 
-def quote_view(quote: Quote, on_extend: Callable[[], None]) -> None:
-    """A quote that's no longer a draft, read-only."""
-    ui.label(f"{quote.number} ({quote.status})").classes("text-h6").mark("heading")
+def quote_view(
+    quote: Quote,
+    on_extend: Callable[[], None],
+    revise: tuple[str, Callable[[], None]] | None = None,
+    on_history: Callable[[], None] | None = None,
+) -> None:
+    """A quote that's no longer a draft, read-only.
+
+    `revise` is the Revise button's label and handler, if it has one.
+    """
+    quote_heading(f"{name_of(quote)} ({quote.status})", on_history)
     if quote.issued_on and quote.valid_until:
         ui.label(
             f"Issued {format_numeric_date(quote.issued_on)} · "
@@ -531,8 +665,14 @@ def quote_view(quote: Quote, on_extend: Callable[[], None]) -> None:
         ui.label(f"Extended {times}; first valid through {first}").classes(
             "text-grey-7"
         ).mark("extensions")
-    if quote.status in (Status.QUOTED, Status.EXPIRED):
-        ui.button("Extend", icon="event", on_click=on_extend).props("outline")
+    with ui.row():
+        if quote.status in (Status.QUOTED, Status.EXPIRED):
+            ui.button("Extend", icon="event", on_click=on_extend).props("outline")
+        if revise is not None:
+            label, on_revise = revise
+            ui.button(label, icon="edit_note", on_click=on_revise).props(
+                "outline"
+            ).mark("revise")
     # A quoted quote shows its frozen figures, not ones worked out again.
     for item in quote.line_items:
         text = (

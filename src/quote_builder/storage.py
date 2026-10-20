@@ -109,6 +109,19 @@ def save_draft(
         _overwrite_draft(conn, quote, now)
 
 
+def save_revision(
+    conn: sqlite3.Connection, quote: Quote, now: datetime | None = None
+) -> None:
+    """Save a new revision draft (from quotes.revision_draft) for the
+    first time.
+
+    Raises sqlite3.IntegrityError if that revision is already saved, or
+    the quote already has a draft. `now` as for save_new_quote.
+    """
+    with conn:
+        _insert_revision(conn, quote, now)
+
+
 def mark_quoted(
     conn: sqlite3.Connection,
     quote: Quote,
@@ -116,12 +129,15 @@ def mark_quoted(
     valid_until: date,
     draw_number: Callable[[], str] = new_quote_number,
     now: datetime | None = None,
+    new_revision: bool = False,
 ) -> Quote:
     """Save a draft, new or saved, as Quoted, with its figures frozen.
 
-    Returns the quoted copy (with its number, if new). The draft's
-    changes and the new status are saved together or not at all. Raises
-    NotADraft as save_draft does; `draw_number` and `now` as for
+    `new_revision` is True for a revision draft not saved yet. Once a
+    revision is quoted, the versions before it are Superseded. Returns
+    the quoted copy (with its number, if new). It's all saved together
+    or not at all. Raises NotADraft as save_draft does, and
+    IntegrityError as save_revision does; `draw_number` and `now` as for
     save_new_quote.
     """
     quoted = freeze(
@@ -132,8 +148,39 @@ def mark_quoted(
     if quoted.number is None:
         return save_new_quote(conn, quoted, draw_number, now)
     with conn:
-        _overwrite_draft(conn, quoted, now)
+        if new_revision:
+            _insert_revision(conn, quoted, now)
+        else:
+            _overwrite_draft(conn, quoted, now)
+        conn.execute(
+            """
+            UPDATE quotes SET status = 'Superseded'
+            WHERE number = ? AND revision < ?
+              AND status IN ('Quoted', 'Declined', 'Expired')
+            """,
+            (quoted.number, quoted.revision),
+        )
     return quoted
+
+
+def _insert_revision(
+    conn: sqlite3.Connection, quote: Quote, now: datetime | None
+) -> None:
+    """Insert a revision not yet saved, inside the caller's transaction."""
+    row = conn.execute(
+        """
+        INSERT INTO quotes
+            (number, revision, status, issued_on, valid_until, notes,
+             updated_at, frozen_items_cents, frozen_discount_cents,
+             frozen_tax_cents, frozen_total_cents)
+        VALUES (:number, :revision, :status, :issued_on, :valid_until,
+                :notes, :updated_at, :items_cents, :discount_cents,
+                :tax_cents, :total_cents)
+        RETURNING id
+        """,
+        _quote_values(quote, quote.number, _timestamp(now)),
+    ).fetchone()
+    _insert_line_items(conn, row["id"], quote.line_items)
 
 
 def _overwrite_draft(
@@ -261,9 +308,10 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
 
 
 def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary]:
-    """Quotes, last changed first, matching `search` if given.
+    """Each quote's newest version, last changed first, matching `search`
+    if given.
 
-    A quote matches if its number, its notes, or any line's description
+    A quote matches if any version's number, notes, or line description
     holds the search text, in any case.
     """
     # In LIKE, % and _ are wildcards: escape them (and the escape
@@ -272,19 +320,51 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
         search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     )
     pattern = f"%{escaped}%"
+    # q is the newest version; v runs over every version of its number.
     rows = conn.execute(
-        r"""
-        SELECT id, number, revision, status, updated_at, frozen_total_cents
-        FROM quotes
-        WHERE number LIKE :pattern ESCAPE '\'
-           OR notes LIKE :pattern ESCAPE '\'
-           OR EXISTS (SELECT 1 FROM line_items
-                      WHERE quote_id = quotes.id
-                        AND description LIKE :pattern ESCAPE '\')
-        ORDER BY updated_at DESC, id DESC
+        rf"""
+        SELECT {_SUMMARY_COLUMNS}
+        FROM quotes AS q
+        WHERE q.revision = (SELECT max(revision) FROM quotes
+                            WHERE number = q.number)
+          AND EXISTS (
+              SELECT 1 FROM quotes AS v
+              WHERE v.number = q.number
+                AND (v.number LIKE :pattern ESCAPE '\'
+                     OR v.notes LIKE :pattern ESCAPE '\'
+                     OR EXISTS (SELECT 1 FROM line_items
+                                WHERE quote_id = v.id
+                                  AND description LIKE :pattern ESCAPE '\')))
+        ORDER BY q.updated_at DESC, q.id DESC
         """,
         {"pattern": pattern},
     ).fetchall()
+    return _summaries(conn, rows)
+
+
+def list_versions(conn: sqlite3.Connection, number: str) -> list[QuoteSummary]:
+    """Every version of a quote, newest first."""
+    rows = conn.execute(
+        f"""
+        SELECT {_SUMMARY_COLUMNS}
+        FROM quotes AS q
+        WHERE q.number = ?
+        ORDER BY q.revision DESC
+        """,
+        (number,),
+    ).fetchall()
+    return _summaries(conn, rows)
+
+
+_SUMMARY_COLUMNS = """
+    q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
+    q.valid_until, q.frozen_total_cents
+"""
+
+
+def _summaries(
+    conn: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> list[QuoteSummary]:
     lines = _line_items_of(conn, [row["id"] for row in rows])
     summaries = []
     for row in rows:
@@ -301,6 +381,8 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
                     if row["frozen_total_cents"] is not None
                     else quote_totals(items).total_cents
                 ),
+                issued_on=_date(row["issued_on"]),
+                valid_until=_date(row["valid_until"]),
             )
         )
     return summaries
@@ -336,18 +418,22 @@ def _line_items_of(
 
 
 def load_quote(
-    conn: sqlite3.Connection, number: str, revision: int = 0
+    conn: sqlite3.Connection, number: str, revision: int | None = None
 ) -> Quote | None:
-    """The quote with this number and revision, or None if there's none."""
+    """The quote with this number and revision (its newest version if
+    None), or None if there's none."""
     row = conn.execute(
         """
         SELECT id, number, revision, status, issued_on, valid_until, notes,
                frozen_items_cents, frozen_discount_cents, frozen_tax_cents,
                frozen_total_cents
         FROM quotes
-        WHERE number = ? AND revision = ?
+        WHERE number = :number
+          AND (:revision IS NULL OR revision = :revision)
+        ORDER BY revision DESC
+        LIMIT 1
         """,
-        (number, revision),
+        {"number": number, "revision": revision},
     ).fetchone()
     if row is None:
         return None

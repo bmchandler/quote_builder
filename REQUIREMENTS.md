@@ -203,12 +203,13 @@ Built (as of 2026-10-19), each with tests:
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
     at any window width (never a pop-over; decided 2026-10-19). Each
-    row shows the number and status, the first line's description, the
+    quote has one row, for its newest version (decided 2026-10-19),
+    showing the number and status, the first line's description, the
     date last saved (local time), and the total; newest first, the open
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
     you type, matches the number, the notes, or any line's description,
-    in any case.
+    in any case, in any version (decided 2026-10-19).
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit price,
@@ -242,14 +243,28 @@ Built (as of 2026-10-19), each with tests:
     quote, offers 30 more days (picked to start), 7 more days (both
     counted from the valid-through date, or from today if that's
     past), or a custom date, showing the new date as it's picked. A
-    setting for which one starts picked may come later. The new date must be
-    later than the old one and not past. Once extended, the quote
-    shows "Extended once; first valid through 11/18/2026" (or "2
-    times", and so on).
+    setting for which one starts picked may come later. The new date
+    must be later than the old one and not past. Once extended, the
+    quote shows "Extended once; first valid through 11/18/2026" (or
+    "2 times", and so on).
+  - Revisions (decided 2026-10-19): Revise, right of Extend on the
+    newest version when it's Quoted, Declined, or Expired, opens a
+    form copied from it (lines and notes; no dates), headed
+    "Q-7KQ-M9XD-R1 (New revision)". Nothing is stored until Save or
+    Mark Quoted, so leaving it unchanged leaves no trace. Quoting it
+    makes the versions before it Superseded. A quote has at most one
+    draft (the database refuses a second); on an older version,
+    Revise reads "Open Draft R1" and opens it instead.
+  - Version history (decided 2026-10-19): once a quote has more than
+    one version, a "Version history" link at the top right of it
+    opens a list of its versions, newest first, each with its status,
+    dates (or date saved, for a draft), and total; clicking one opens
+    it.
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Revisions (decided 2026-10-19: the list shows one row per quote
-   number, its newest version; older versions are reached from the
-   open quote).
+1. Highlighting search matches in the list (asked 2026-10-19; to be
+   designed): marking the matched text where a row shows it, and a
+   short "matched in" line where it doesn't (notes, a later line, an
+   older version).
 2. The business profile and tax rates, clients, then the catalog.

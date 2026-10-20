@@ -1,6 +1,6 @@
 """Quotes and their line items, as the app works with them."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -13,6 +13,16 @@ class Status(StrEnum):
     DECLINED = "Declined"
     EXPIRED = "Expired"
     SUPERSEDED = "Superseded"
+
+
+# Statuses a quote can be revised from (not Accepted: a change after
+# acceptance is a matter for invoicing, later).
+REVISABLE = (Status.QUOTED, Status.DECLINED, Status.EXPIRED)
+
+
+def version_name(number: str, revision: int) -> str:
+    """`Q-7KQ-M9XD` for the first version, `Q-7KQ-M9XD-R1` and on after."""
+    return number if revision == 0 else f"{number}-R{revision}"
 
 
 @dataclass(frozen=True)
@@ -89,3 +99,19 @@ class QuoteSummary:
     first_line: str | None  # the first line's description; None if no lines
     updated_at: datetime
     total_cents: int
+    issued_on: date | None = None
+    valid_until: date | None = None
+
+
+def revision_draft(quote: Quote, revision: int) -> Quote:
+    """A new draft of `quote` numbered `revision`, not yet saved.
+
+    It keeps the lines and notes, as changeable, but none of what the
+    quoted version was given: dates, frozen figures, extensions.
+    """
+    return Quote(
+        number=quote.number,
+        revision=revision,
+        notes=quote.notes,
+        line_items=[replace(item, frozen=None) for item in quote.line_items],
+    )

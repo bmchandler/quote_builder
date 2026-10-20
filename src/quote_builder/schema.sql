@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_total_cents IS NULL))
 ) STRICT;
 
+-- At most one draft per quote number: a revision is worked on one at
+-- a time. (A partial index: only rows matching WHERE are indexed.)
+CREATE UNIQUE INDEX IF NOT EXISTS one_draft_per_quote
+    ON quotes (number) WHERE status = 'Draft';
+
 -- Each time a quote's valid-through date was moved later, so the
 -- original date and the number of extensions can be looked up.
 CREATE TABLE IF NOT EXISTS quote_extensions (
