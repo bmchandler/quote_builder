@@ -12,6 +12,7 @@ from quote_builder.quotes import (
     Quote,
     QuoteSummary,
     QuoteTotals,
+    SearchText,
     Status,
     revision_draft,
 )
@@ -30,6 +31,7 @@ from quote_builder.storage import (
     save_draft,
     save_new_quote,
     save_revision,
+    search_texts,
 )
 
 
@@ -515,3 +517,31 @@ def test_list_versions_newest_first(conn):
         (0, Status.QUOTED),
     ]
     assert (versions[1].issued_on, versions[1].valid_until) == (ISSUED, VALID_UNTIL)
+
+
+def test_search_texts_of_every_version_newest_first(conn):
+    quoted = quoted_lawn(conn)
+    save_revision(
+        conn,
+        replace(
+            revision_draft(quoted, 1),
+            notes="",
+            line_items=[LineItem("Edge", Decimal(1), 1500)],
+        ),
+    )
+    save_new_quote(conn, Quote(notes="Gutters"), numbers("Q-222-2222"))
+
+    texts = search_texts(conn, ["Q-7KQ-M9XD"])
+    assert texts == {
+        "Q-7KQ-M9XD": [
+            SearchText(1, "line", 0, "Edge"),  # R1 has no notes
+            SearchText(0, "line", 0, "Mow lawn"),
+            SearchText(0, "line", 1, "Trim hedges"),
+            SearchText(0, "line", 2, "Hedge trimmer blade"),
+            SearchText(0, "notes", 0, "Front and back yard."),
+        ]
+    }
+
+
+def test_search_texts_of_no_quotes(conn):
+    assert search_texts(conn, []) == {}

@@ -53,6 +53,7 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`), money.py
   and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
+  search.py (search matches: escaped HTML with `<mark>`, excerpts),
   storage.py + schema.sql (all SQL), app.py (NiceGUI only; calls the
   others). Never float for money: text goes straight to
   `Decimal`, cents are `int`; no `ui.number`.
@@ -90,6 +91,9 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   (use `props("active")`); a handler that takes a parameter is passed
   the event's arguments (wrap it: `lambda: add_line()`);
   `refreshable.refresh()` runs in the background unless awaited.
+  `ui.html` cleans its HTML with DOMPurify (`sanitize=True`, the
+  default), which keeps `<mark>` and `class`; escape user text first
+  anyway (search.py does).
 
 ## Testing notes
 

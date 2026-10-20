@@ -210,6 +210,14 @@ Built (as of 2026-10-19), each with tests:
     (decided 2026-10-19): enough to keep quotes in order. Search, as
     you type, matches the number, the notes, or any line's description,
     in any case, in any version (decided 2026-10-19).
+  - Search matches are highlighted (decided 2026-10-19), in a soft
+    amber, in the row's number and first line. A match the row doesn't
+    show (notes, a later line, an older version) adds a small italic
+    line with where and an excerpt: "Notes: …the back hedges need…",
+    "Line Item 2: Flush downspouts", "R1, Line Item 3: …" ("Line
+    Item", not "Line", which reads like code, or "Item", odd for a
+    service). On trial: if it's too busy, it may become just where
+    ("Match in notes"), or go.
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit price,
@@ -263,8 +271,12 @@ Built (as of 2026-10-19), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Highlighting search matches in the list (asked 2026-10-19; to be
-   designed): marking the matched text where a row shows it, and a
-   short "matched in" line where it doesn't (notes, a later line, an
-   older version).
+1. Open the version a search found (planned 2026-10-19): clicking a
+   row while searching opens the version the snippet points to (an
+   older one, if that's where it matched), so the user can confirm
+   it's the quote they remember. Any older version then shows a
+   banner at the top, such as "This is an older version; R2 (Draft)
+   is current", with a button to go to the current one, so it's
+   never taken for the current one in a hurry. It also helps find a
+   draft in progress through an older version's text.
 2. The business profile and tax rates, clients, then the catalog.

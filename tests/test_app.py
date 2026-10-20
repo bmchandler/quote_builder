@@ -832,3 +832,76 @@ async def open_version(user, number, revision):
     user.find(marker=f"version-{revision}").click()
     name = number if revision == 0 else f"{number}-R{revision}"
     await eventually(lambda: (heading(user) or "").startswith(f"{name} ("))
+
+
+def row_html(user, number):
+    """The HTML of each highlighted part of a quote's list row."""
+    [row] = user.find(marker=f"quote-{number}").elements
+    return [
+        element.content
+        for element in row.descendants()
+        if isinstance(element, ui.html)
+    ]
+
+
+async def search_for(user, term):
+    user.find(marker="search").type(term)
+    await user.should_see(kind=ui.html)  # the list redrawn, highlighted
+
+
+async def test_search_highlights_the_first_line(user, conn):
+    saved = save_new_quote(
+        conn, Quote(line_items=[LineItem("Trim hedges", Decimal(1), 3000)])
+    )
+    await reload(user)
+    await search_for(user, "HEDGES")
+
+    assert any(">hedges</mark>" in part for part in row_html(user, saved.number))
+    await user.should_not_see(marker=f"match-{saved.number}")
+
+
+async def test_search_shows_a_match_the_row_hides(user, conn):
+    saved = save_new_quote(
+        conn,
+        Quote(
+            notes="Back hedges too.",
+            line_items=[LineItem("Mow lawn", Decimal(1), 4500)],
+        ),
+    )
+    await reload(user)
+    await search_for(user, "hedges")
+
+    await user.should_see(marker=f"match-{saved.number}")
+    parts = row_html(user, saved.number)
+    [match] = [part for part in parts if part.startswith("Notes")]
+    assert match.startswith("Notes: Back <mark")
+    assert ">hedges</mark> too." in match
+
+
+async def test_search_highlights_the_number(user, conn):
+    saved = save_new_quote(
+        conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
+    )
+    await reload(user)
+    await search_for(user, saved.number[2:5].lower())
+
+    [title, _first_line] = row_html(user, saved.number)
+    assert title.startswith("Q-<mark")
+
+
+async def test_typed_html_shows_as_typed(user, conn):
+    saved = save_new_quote(
+        conn, Quote(line_items=[LineItem("<b>Deck</b> wash", Decimal(1), 4500)])
+    )
+    await reload(user)
+    await search_for(user, "deck")
+
+    [_title, first_line] = row_html(user, saved.number)
+    assert first_line.startswith("&lt;b&gt;<mark")
+
+
+async def test_no_highlighting_without_a_search(user, conn):
+    save_new_quote(conn, Quote(notes="Back hedges too."))
+    await reload(user)
+    await user.should_see("No lines")
+    await user.should_not_see(kind=ui.html)

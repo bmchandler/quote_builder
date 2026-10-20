@@ -103,6 +103,16 @@ class QuoteSummary:
     valid_until: date | None = None
 
 
+@dataclass(frozen=True)
+class SearchText:
+    """A piece of a quote's text that search looks in."""
+
+    revision: int
+    field: str  # "line" or "notes"
+    position: int  # the line's place on the quote, from 0; 0 for notes
+    text: str
+
+
 def revision_draft(quote: Quote, revision: int) -> Quote:
     """A new draft of `quote` numbered `revision`, not yet saved.
 

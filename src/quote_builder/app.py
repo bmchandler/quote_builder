@@ -3,6 +3,7 @@
 A first, bare layout, growing a step at a time.
 """
 
+import html
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
@@ -49,7 +50,9 @@ from quote_builder.storage import (
     save_draft,
     save_new_quote,
     save_revision,
+    search_texts,
 )
+from quote_builder.search import hidden_match, highlight
 from quote_builder.totals import (
     line_totals,
     quote_totals,
@@ -185,10 +188,15 @@ def quote_page(
             def quote_list() -> None:
                 # Expire overdue quotes first, so the list shows them so.
                 expire_overdue(conn, today())
-                summaries = list_quotes(conn, search.value or "")
+                term = (search.value or "").strip()
+                summaries = list_quotes(conn, term)
                 if not summaries:
-                    ui.label("No quotes found" if search.value else "No quotes yet")
+                    ui.label("No quotes found" if term else "No quotes yet")
                     return
+                # Where each quote matched, for rows that don't show it.
+                texts = {}
+                if term:
+                    texts = search_texts(conn, [s.number for s in summaries])
                 with ui.list().props("separator").classes("w-full"):
                     for summary in summaries:
                         quote_list_item(
@@ -196,6 +204,10 @@ def quote_page(
                             selected=current is not None
                             and summary.number == current.number,
                             on_click=lambda number: open_quote(number),
+                            term=term,
+                            hidden=hidden_match(
+                                summary, texts.get(summary.number, []), term
+                            ),
                         )
 
             quote_list()
@@ -287,18 +299,47 @@ def landing() -> None:
 
 
 def quote_list_item(
-    summary: QuoteSummary, selected: bool, on_click: Callable[[str], None]
+    summary: QuoteSummary,
+    selected: bool,
+    on_click: Callable[[str], None],
+    term: str = "",
+    hidden: tuple[str, str] | None = None,
 ) -> None:
-    """One quote in the side list: number, status, first line, date, total."""
+    """One quote in the side list: number, status, first line, date, total.
+
+    While searching for `term`, matches are highlighted, and `hidden`
+    (where it matched and an excerpt, from search.hidden_match) adds a
+    line for a match the row doesn't otherwise show.
+    """
     item = ui.item(on_click=lambda: on_click(summary.number))
     item.props("clickable").mark(f"quote-{summary.number}")
     if selected:
         item.props("active")
+    name = version_name(summary.number, summary.revision)
+    first_line = summary.first_line or "No lines"
     with item:
         with ui.item_section():
-            name = version_name(summary.number, summary.revision)
-            ui.item_label(f"{name} · {summary.status}")
-            ui.item_label(summary.first_line or "No lines").props("caption lines=1")
+            if not term:
+                ui.item_label(f"{name} · {summary.status}")
+                ui.item_label(first_line).props("caption lines=1")
+            else:
+                # highlight escapes the text; ui.html's sanitizer
+                # (DOMPurify) keeps the <mark> tags.
+                with ui.item_label():
+                    ui.html(
+                        f"{highlight(name, term)} · {summary.status}", tag="span"
+                    )
+                with ui.item_label().props("caption lines=1"):
+                    ui.html(highlight(first_line, term), tag="span")
+                if hidden is not None:
+                    place, text = hidden
+                    with ui.item_label().props("caption lines=2").mark(
+                        f"match-{summary.number}"
+                    ):
+                        ui.html(
+                            f"{html.escape(place)}: {highlight(text, term)}",
+                            tag="span",
+                        ).classes("italic")
         with ui.item_section().props("side top"):
             ui.item_label(short_date(summary.updated_at)).props("caption")
             ui.item_label(format_money(summary.total_cents)).mark(

@@ -20,6 +20,7 @@ from quote_builder.quotes import (
     Quote,
     QuoteSummary,
     QuoteTotals,
+    SearchText,
     Status,
 )
 from quote_builder.totals import freeze, quote_totals
@@ -354,6 +355,40 @@ def list_versions(conn: sqlite3.Connection, number: str) -> list[QuoteSummary]:
         (number,),
     ).fetchall()
     return _summaries(conn, rows)
+
+
+def search_texts(
+    conn: sqlite3.Connection, numbers: list[str]
+) -> dict[str, list[SearchText]]:
+    """The line descriptions and notes of every version of these
+    quotes, by number: newest version first, lines in order, then notes.
+
+    One query for all the quotes, as for line items.
+    """
+    if not numbers:
+        return {}
+    placeholders = ", ".join("?" * len(numbers))
+    # 'line' sorts before 'notes', so each version's lines come first.
+    rows = conn.execute(
+        f"""
+        SELECT q.number, q.revision, 'line' AS field, li.position,
+               li.description AS text
+        FROM quotes AS q JOIN line_items AS li ON li.quote_id = q.id
+        WHERE q.number IN ({placeholders})
+        UNION ALL
+        SELECT number, revision, 'notes', 0, notes
+        FROM quotes
+        WHERE number IN ({placeholders}) AND notes != ''
+        ORDER BY 1, 2 DESC, 3, 4
+        """,
+        [*numbers, *numbers],
+    ).fetchall()
+    texts: dict[str, list[SearchText]] = {}
+    for row in rows:
+        texts.setdefault(row["number"], []).append(
+            SearchText(row["revision"], row["field"], row["position"], row["text"])
+        )
+    return texts
 
 
 _SUMMARY_COLUMNS = """
