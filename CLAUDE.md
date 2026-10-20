@@ -11,8 +11,19 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
 
 ## How we work
 
-- Build in small "horizontal" steps: only what the current request needs.
-  Don't scaffold ahead or add functions before a step uses them.
+- Build in small "horizontal" steps: only what the current request
+  needs, and whatever a step adds comes with what uses it, so the
+  user can try it by hand end to end (a setting with the behavior it
+  changes; a field with where it shows). Several simple fields can
+  share a step; an involved one gets its own, with its dependents.
+  No extra behavior bundled unannounced: its own commit, or ask.
+  Describe planned steps by what the user can try after each.
+- Don't scaffold ahead or add functions before a step uses them. The
+  exception, raised and agreed first: groundwork for something
+  certain to come that's cheap now and costly to change later (the
+  `businesses` table, shaped for several businesses before they can
+  be added). When less sure, pay the redo cost in the step that needs
+  it: the feature may be dropped before then.
 - Add or update tests alongside each change.
 - After changes are done, stage what makes sense, draft a commit
   message, and pause there. Don't run `git commit` until the user reviews
