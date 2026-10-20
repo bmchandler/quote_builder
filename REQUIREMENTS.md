@@ -280,7 +280,19 @@ Built (as of 2026-10-20), each with tests:
     searching, clicking a row opens the newest version that matched
     (an older one, if that's where the match is), so the user can
     confirm it's the quote they remember. Without a search, or when
-    the row shows the match, a click opens the newest version.
+    the row shows the match, a click opens the newest version. A
+    search matching several versions still gives one row (decided
+    2026-10-20): lines and notes mostly carry over between
+    revisions, so a row per version would mostly repeat.
+  - Highlights on the open quote (decided 2026-10-20): while
+    searching, a read-only quote highlights the matches in its lines
+    and notes, as the list does, following the search as it's typed
+    or cleared, and across versions opened from Version history: a
+    quick way to see which versions word it differently. In a
+    draft's form, an input can't highlight part of its text, so each
+    description or notes field holding the term is tinted pale amber
+    instead, following the search and the typing. That way the user
+    needn't wonder whether the draft holds the term.
   - Older versions (decided 2026-10-20): any version but the newest,
     however it was opened, shows an amber banner under its heading:
     "This is an older version. R2 (Draft) is the newest.", with "Go
@@ -293,8 +305,3 @@ Built (as of 2026-10-20), each with tests:
 Next, growing the screen, storage, and tests together in small steps:
 
 1. The business profile and tax rates, clients, then the catalog.
-2. After some use, revisit a search that matches several versions of
-   a quote (planned 2026-10-20). For now, a click opens the newest
-   that matched. Options: keep that; list each version that matched
-   in the side panel, each opening its own; or keep one row and ask
-   which version to open when more than one matched.

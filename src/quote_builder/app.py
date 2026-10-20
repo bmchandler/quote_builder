@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime
+from typing import NamedTuple
 
 from nicegui import ui
 
@@ -52,7 +53,7 @@ from quote_builder.storage import (
     save_revision,
     search_texts,
 )
-from quote_builder.search import HiddenMatch, hidden_match, highlight
+from quote_builder.search import HiddenMatch, hidden_match, highlight, matches
 from quote_builder.totals import (
     line_totals,
     quote_totals,
@@ -71,16 +72,18 @@ def quote_page(
 
     def root() -> None:
         current: Quote | None = None  # the quote on the right, if any
-        # Whether the form on the right has changes not yet saved.
-        has_unsaved_changes: Callable[[], bool] = lambda: False
+        editor: Editor | None = None  # its form, if it's a draft
+
+        def search_term() -> str:
+            return (search.value or "").strip()
 
         # Handlers first: the list below calls open_quote as it's drawn.
         def show(quote: Quote | None, new_revision: bool = False) -> None:
             """Show `quote` on the right; `new_revision` if it's a
             revision draft not saved yet."""
-            nonlocal current, has_unsaved_changes
+            nonlocal current, editor
             current = quote
-            has_unsaved_changes = lambda: False
+            editor = None
             versions = []
             if quote is not None and quote.number is not None:
                 versions = list_versions(conn, quote.number)
@@ -94,13 +97,14 @@ def quote_page(
                 if quote is None:
                     landing()
                 elif quote.status is Status.DRAFT:
-                    has_unsaved_changes = quote_editor(
+                    editor = quote_editor(
                         conn,
                         quote,
                         on_saved=show,
                         today=today,
                         new_revision=new_revision,
                         on_history=on_history,
+                        term=search_term(),
                     )
                 else:
                     # A draft is always the newest, so only a view can
@@ -113,8 +117,20 @@ def quote_page(
                         on_history=on_history,
                         newer=newest if newest.revision != quote.revision else None,
                         on_newest=lambda: open_quote(quote.number),
+                        term=search_term(),
                     )
             quote_list.refresh()
+
+        def search_changed() -> None:
+            """Matches on the open quote follow the search, as the list's do."""
+            if editor is not None:
+                # Not drawn again: that would drop the form's edits.
+                editor.search_changed(search_term())
+                quote_list.refresh()
+            elif current is not None:
+                show(current)  # refreshes the list too
+            else:
+                quote_list.refresh()
 
         def revise_action(
             quote: Quote, versions: list[QuoteSummary]
@@ -133,7 +149,7 @@ def quote_page(
 
         async def may_leave() -> bool:
             """True if there's nothing unsaved, or the user lets it go."""
-            if not has_unsaved_changes():
+            if editor is None or not editor.has_unsaved_changes():
                 return True
             return await confirm_discard(name_of(current))
 
@@ -180,9 +196,9 @@ def quote_page(
             "width=350 bordered behavior=desktop"
         ).mark("side-panel"):
             ui.label("Quote Builder").classes("text-h6")
-            search = ui.input(
-                "Search", on_change=lambda: quote_list.refresh()
-            ).props("clearable").classes("w-full").mark("search")
+            search = ui.input("Search", on_change=search_changed).props(
+                "clearable"
+            ).classes("w-full").mark("search")
             ui.button("New Quote", icon="add", on_click=new_quote)
 
             @ui.refreshable
@@ -426,6 +442,18 @@ class LineInputs:
         )
 
 
+class Editor(NamedTuple):
+    """What the page needs from a draft's form, once drawn."""
+
+    has_unsaved_changes: Callable[[], bool]
+    search_changed: Callable[[str], None]  # tints fields matching the term
+
+
+# A field holding the search term. An input can't highlight part of its
+# text, so the whole field is tinted, in the list's amber.
+MATCHING_FIELD = "bg-amber-100"
+
+
 def quote_editor(
     conn: sqlite3.Connection,
     quote: Quote,
@@ -433,11 +461,13 @@ def quote_editor(
     today: Callable[[], date],
     new_revision: bool = False,
     on_history: Callable[[], None] | None = None,
-) -> Callable[[], bool]:
+    term: str = "",
+) -> Editor:
     """A form for a draft, new or saved; `on_saved` gets it once saved.
 
-    `new_revision` if it's a revision draft not saved yet. Returns a
-    function telling whether the form has unsaved changes.
+    `new_revision` if it's a revision draft not saved yet. While
+    searching for `term`, description and notes fields holding it are
+    tinted.
     """
     if quote.number is None:
         heading = "New Quote"
@@ -486,9 +516,26 @@ def quote_editor(
 
     def update_totals() -> None:
         foot.refresh()
+        show_matches()  # a description may have changed
+
+    def show_matches() -> None:
+        for field in [line.description for line in lines] + [notes]:
+            if matches(field.value or "", term):
+                field.classes(add=MATCHING_FIELD)
+            else:
+                field.classes(remove=MATCHING_FIELD)
+
+    def search_changed(new_term: str) -> None:
+        nonlocal term
+        term = new_term
+        show_matches()
 
     foot()
-    notes = ui.textarea("Notes", value=quote.notes).classes("w-96")
+    notes = (
+        ui.textarea("Notes", value=quote.notes, on_change=show_matches)
+        .classes("w-96")
+        .mark("notes")
+    )
 
     def changed_quote() -> Quote | None:
         """The quote as the form has it, or None after showing a problem."""
@@ -555,7 +602,7 @@ def quote_editor(
     # Saving shows the quote again in a new form, so this is also the
     # state as last saved. Changes undone by hand count as no change.
     opened_with = form_state()
-    return lambda: form_state() != opened_with
+    return Editor(lambda: form_state() != opened_with, search_changed)
 
 
 async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
@@ -699,12 +746,14 @@ def quote_view(
     on_history: Callable[[], None] | None = None,
     newer: QuoteSummary | None = None,
     on_newest: Callable[[], None] | None = None,
+    term: str = "",
 ) -> None:
     """A quote that's no longer a draft, read-only.
 
     `on_revise` is the Revise button's handler, if it has one.
     `newer` is the newest version, if `quote` is an older one;
-    `on_newest` opens it.
+    `on_newest` opens it. While searching for `term`, its matches in
+    the lines and notes are highlighted.
     """
     quote_heading(f"{name_of(quote)} ({quote.status})", on_history)
     if newer is not None:
@@ -729,20 +778,26 @@ def quote_view(
                 "outline"
             ).mark("revise")
     # A quoted quote shows its frozen figures, not ones worked out again.
-    for item in quote.line_items:
-        text = (
-            f"{item.description}: {item.quantity} × "
-            f"{format_money(item.unit_price_cents)}"
-        )
+    for n, item in enumerate(quote.line_items, start=1):
+        rest = f": {item.quantity} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
-            text += f", less {discount}"
+            rest += f", less {discount}"
         if item.tax_percent:
-            text += f", tax {item.tax_percent}%"
-        text += f" = {format_money(shown_line_totals(item).net_cents)}"
-        ui.label(text)
+            rest += f", tax {item.tax_percent}%"
+        rest += f" = {format_money(shown_line_totals(item).net_cents)}"
+        searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals_foot(shown_quote_totals(quote))
     if quote.notes:
-        ui.label(quote.notes)
+        searched_text(quote.notes, term).mark("view-notes")
+
+
+def searched_text(text: str, term: str, after: str = "") -> ui.element:
+    """`text`, then `after`; while searching for `term`, its matches in
+    `text` are highlighted, as in the list."""
+    if not term:
+        return ui.label(text + after)
+    # highlight escapes the text; ui.html's sanitizer keeps the <mark>s.
+    return ui.html(highlight(text, term) + html.escape(after), tag="div")
 
 
 def older_version_banner(newest: QuoteSummary, on_open: Callable[[], None]) -> None:

@@ -98,8 +98,10 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   (`landing`, `quote_editor`, `quote_view`) and refreshes the list;
   `new_revision` marks a revision draft not stored yet (saved with
   `save_revision`, or `mark_quoted(..., new_revision=True)`).
-  `quote_editor` returns a has-unsaved-changes function (form state
-  compared with what it opened with). The side panel is
+  `quote_editor` returns an `Editor`: `has_unsaved_changes` (form
+  state compared with what it opened with) and `search_changed`
+  (tints matching fields; the form is never redrawn for a search,
+  which would drop its edits). The side panel is
   `ui.left_drawer` with `behavior=desktop` (Quasar's default turns it
   into a pop-over below 1024 pixels; the window is 1000), 350 wide.
   To try another width, change the prop: restyling the drawer in the

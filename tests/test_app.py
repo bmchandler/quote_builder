@@ -957,6 +957,99 @@ async def test_typed_html_shows_as_typed(user, conn):
     assert first_line.startswith("&lt;b&gt;<mark")
 
 
+def view_html(user, marker):
+    """The highlighted HTML of a part of the open quote, or None if it
+    isn't highlighted (no search)."""
+    [element] = user.find(marker=marker).elements
+    return element.content if isinstance(element, ui.html) else None
+
+
+async def test_open_quote_highlights_the_search(user, conn):
+    saved = mark_quoted(
+        conn,
+        Quote(
+            notes="Back hedges too.",
+            line_items=[LineItem("Trim hedges", Decimal(1), 3000)],
+        ),
+        date(2026, 9, 1),
+        VALID_UNTIL,
+    )
+    await reload(user)
+    await search_for(user, "hedges")
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(marker="view-notes")
+
+    assert ">hedges</mark>: 1 × $30.00" in view_html(user, "view-line-1")
+    assert ">hedges</mark> too." in view_html(user, "view-notes")
+
+
+async def test_highlights_stay_after_switching_versions(user, conn):
+    saved = quoted(conn)  # "Mow lawn"
+    mark_quoted(conn, revision_draft(saved, 1), TODAY, VALID_UNTIL, new_revision=True)
+    await reload(user)
+    await search_for(user, "mow")
+    await open_version(user, saved.number, 0)
+
+    await user.should_see(marker="older-version")
+    assert view_html(user, "view-line-1").startswith("<mark")
+
+
+async def test_highlights_follow_the_search(user, conn):
+    saved = quoted(conn)  # "Mow lawn"
+    await open_saved(user, saved)
+    assert view_html(user, "view-line-1") is None
+
+    user.find(marker="search").type("lawn")
+    await eventually(lambda: view_html(user, "view-line-1") is not None)
+    assert ">lawn</mark>" in view_html(user, "view-line-1")
+    user.find(marker="search").clear()
+    await eventually(lambda: view_html(user, "view-line-1") is None)
+
+
+def tinted(user, marker):
+    """Whether a field of the form is tinted as holding the search."""
+    [field] = user.find(marker=marker).elements
+    return "bg-amber-100" in field.classes
+
+
+async def test_draft_tints_fields_holding_the_search(user, conn):
+    saved = save_new_quote(
+        conn,
+        Quote(
+            notes="Back hedges too.",
+            line_items=[
+                LineItem("Mow lawn", Decimal(1), 4500),
+                LineItem("Trim hedges", Decimal(1), 3000),
+            ],
+        ),
+    )
+    await reload(user)
+    await search_for(user, "hedges")
+    user.find(marker=f"quote-{saved.number}").click()
+    await eventually(lambda: heading(user) == f"{saved.number} (Draft)")
+
+    assert not tinted(user, "description-1")
+    assert tinted(user, "description-2")
+    assert tinted(user, "notes")
+
+
+async def test_draft_tints_follow_the_search_and_typing(user, conn):
+    await new_quote(user)
+    user.find(marker="description-1").type("Trim hedges")
+    assert not tinted(user, "description-1")  # no search yet
+
+    user.find(marker="search").type("hedges")
+    await eventually(lambda: tinted(user, "description-1"))
+    user.find(marker="description-1").clear().type("Mow lawn")
+    await eventually(lambda: not tinted(user, "description-1"))
+    user.find(marker="notes").type("Hedges next time")
+    await eventually(lambda: tinted(user, "notes"))
+    user.find(marker="search").clear()
+    await eventually(lambda: not tinted(user, "notes"))
+    # The form wasn't drawn again: what was typed is still there.
+    assert value(user.find(marker="notes")) == "Hedges next time"
+
+
 async def test_no_highlighting_without_a_search(user, conn):
     save_new_quote(conn, Quote(notes="Back hedges too."))
     await reload(user)
