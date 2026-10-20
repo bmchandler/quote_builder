@@ -175,8 +175,9 @@ def quote_page(
 
         # behavior=desktop: always beside the quote. Otherwise Quasar turns
         # it into a pop-over below 1024 pixels wide (the window is 1000).
+        # 350 wide: a row's "Q-WMW-M8KW-R1 · Accepted" fits on one line.
         with ui.left_drawer(value=True, fixed=True).props(
-            "width=300 bordered behavior=desktop"
+            "width=350 bordered behavior=desktop"
         ).mark("side-panel"):
             ui.label("Quote Builder").classes("text-h6")
             search = ui.input(

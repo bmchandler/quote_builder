@@ -86,7 +86,9 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   `quote_editor` returns a has-unsaved-changes function (form state
   compared with what it opened with). The side panel is
   `ui.left_drawer` with `behavior=desktop` (Quasar's default turns it
-  into a pop-over below 1024 pixels; the window is 1000).
+  into a pop-over below 1024 pixels; the window is 1000), 350 wide.
+  To try another width, change the prop: restyling the drawer in the
+  page by hand leaves Quasar's page padding at the old width.
 - NiceGUI quirks met: `props("active=True")` passes the text "True"
   (use `props("active")`); a handler that takes a parameter is passed
   the event's arguments (wrap it: `lambda: add_line()`);

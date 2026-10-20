@@ -43,6 +43,11 @@ Future (not now):
   The zone label would follow the date (EST in winter, EDT in summer,
   from the time zone's rules); whether to offer plain "Eastern" or a
   fixed "EST" too is to be decided.
+- A minimum window size (noted 2026-10-20): made narrow enough, the
+  quote's layout starts to break (the totals' "Discounts" slides left
+  of the Extend/Revise buttons' left edge). pywebview takes a
+  `min_size`, passed through NiceGUI's `app.native.window_args`;
+  the size is to be found by trying it.
 
 ## Data
 
@@ -202,7 +207,10 @@ Built (as of 2026-10-19), each with tests:
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
-    at any window width (never a pop-over; decided 2026-10-19). Each
+    at any window width (never a pop-over; decided 2026-10-19), 350
+    pixels wide, so a row's number and status stay on one line even
+    for a revision (decided 2026-10-20; at 300, "Q-…-R1 · Quoted"
+    wrapped). Each
     quote has one row, for its newest version (decided 2026-10-19),
     showing the number and status, the first line's description, the
     date last saved (local time), and the total; newest first, the open

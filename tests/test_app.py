@@ -289,6 +289,12 @@ async def test_side_panel_stays_beside_the_quote_at_any_width(user):
     assert panel.props["behavior"] == "desktop"
 
 
+async def test_side_panel_is_wide_enough_for_a_revision(user):
+    # At 300, "Q-...-R1 · Quoted" wrapped onto two lines.
+    [panel] = user.find(marker="side-panel").elements
+    assert panel.props["width"] == "350"  # props from text stay text
+
+
 async def test_new_quote_after_saving(user, conn):
     await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "45")
