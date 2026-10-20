@@ -50,10 +50,11 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
 ## Code notes
 
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
-  `QuoteSummary`, `LineTotals`, `QuoteTotals`), money.py and dates.py
-  (text in and out: `parse_*` raise ValueError with a message for the
-  user, `format_*`), totals.py (all money math), storage.py + schema.sql (all SQL), app.py (NiceGUI only;
-  calls the others). Never float for money: text goes straight to
+  `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`), money.py
+  and dates.py (text in and out: `parse_*` raise ValueError with a
+  message for the user, `format_*`), totals.py (all money math),
+  storage.py + schema.sql (all SQL), app.py (NiceGUI only; calls the
+  others). Never float for money: text goes straight to
   `Decimal`, cents are `int`; no `ui.number`.
 - storage.py: `connect` sets `PRAGMA foreign_keys = ON` while in
   autocommit (it's a no-op inside a transaction), runs schema.sql, then
@@ -69,8 +70,9 @@ Setup, running, and tests are in DEVELOPMENT.md, imported here:
   `mark_quoted` freezes them (`frozen` on `Quote` and `LineItem`;
   REQUIREMENTS.md, Data). Show figures with `shown_line_totals` /
   `shown_quote_totals`, which prefer the frozen ones.
-- app.py: `quote_page(conn)` returns the root function for
-  `ui.run(root)`; tests pass a temp database. In `root`, handlers are
+- app.py: `quote_page(conn, today=date.today)` returns the root
+  function for `ui.run(root)`; tests pass a temp database and a fixed
+  `today`. In `root`, handlers are
   defined before the layout that calls them. `show(quote)` swaps the
   right side (`landing`, `quote_editor`, `quote_view`) and refreshes
   the list. `quote_editor` returns a has-unsaved-changes function

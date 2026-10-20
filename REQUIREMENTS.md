@@ -38,6 +38,11 @@ Future (not now):
   later, decided 2026-10-17). Print straight from the app first, if the
   native window can. A PDF library must have an MIT-like license.
 - A simple dashboard (quote counts, extensions, and the like).
+- A time of day on the valid-through date, such as the end of office
+  hours: "Valid through 11/18/2026 6:30 pm EST" (decided 2026-10-19).
+  The zone label would follow the date (EST in winter, EDT in summer,
+  from the time zone's rules); whether to offer plain "Eastern" or a
+  fixed "EST" too is to be decided.
 
 ## Data
 
@@ -53,8 +58,8 @@ are worked out with `Decimal` and rounded to the cent where shown.
 - **Catalog item**: a reusable service or part, with a description,
   default price, unit (hour, each, flat, and so on), and whether it's
   taxable (often not, for a service).
-- **Quote**: number, client, tax rate, date issued, valid-until date,
-  status, notes, and line items.
+- **Quote**: number, client, tax rate, date issued, valid-through
+  date, status, notes, and line items.
 - **Line item**: description, quantity, unit price, discount, and tax
   rate.
   Picking a catalog item fills these in; they can then be changed for
@@ -133,22 +138,34 @@ Revisions (decided 2026-10-17):
 
 - A revision starts as a Draft. Until it's quoted, the last quoted
   version stays Quoted, as it's what the client holds, and its
-  valid-until date still counts.
+  valid-through date still counts.
 - Once the revision is quoted, the version before it becomes
   Superseded: read-only, kept for history.
 - Quoted, Declined, and Expired quotes can be revised; Accepted ones
   can't (a change after acceptance is a matter for invoicing, later).
-- Each revision has its own valid-until date, and its own extensions.
+- Each revision has its own valid-through date, and its own
+  extensions.
 
 Quote statuses: Draft, Quoted, Accepted, Declined, Expired, and
 Superseded for a revised version (Quoted, not Sent, as a quote may be
 given in person; decided 2026-10-17). A Quoted quote becomes Expired
-on its own once past its valid-until date (decided 2026-10-17). The user can extend it, such as when a client asks for
-more time at the quoted price, by setting a later valid-until date.
-The new date replaces the old one on the quote (decided 2026-10-17);
-each extension is also logged out of the way (date extended, old and
-new valid-until dates), so the original date and the number of
-extensions can be looked up later.
+on its own once past its valid-through date (decided 2026-10-17).
+
+A quote's date is its last good day, inclusive, and always worded
+"Valid through", the clearest common form (decided 2026-10-19):
+"until" is read both ways (in contracts it's often taken to leave the
+day out), and "expires on" is used both for the last good day and the
+first dead one. So a quote valid through 11/18/2026 is good all of
+that day and Expired from 11/19/2026. The database column keeps the
+name `valid_until`.
+
+The user can extend a Quoted or Expired quote, such as when a client
+asks for more time at the quoted price, by setting a later
+valid-through date (decided 2026-10-17); an expired one is then
+Quoted again (decided 2026-10-19). The new date replaces the old one
+on the quote; each extension is also logged out of the way (date
+extended, old and new valid-through dates), so the original date and
+the number of extensions can be looked up later.
 
 ## Code layout
 
@@ -207,18 +224,32 @@ Built (as of 2026-10-19), each with tests:
     pywebview's closing event, which it doesn't yet (decided
     2026-10-19; no workaround). Until then, the README tells users to
     save before closing.
-
+  - Dates (decided 2026-10-19): the list shows `Oct 19, 2026`; a
+    quote and its dialogs show `10/19/2026`. Date fields take
+    `11/18/2026` (or `2026-11-18`), typed or picked from a calendar.
   - Marking a draft Quoted (decided 2026-10-19): Mark Quoted, beside
-    Save, asks for the date issued (today) and valid-until (30 days
-    on, until the business profile makes it a setting), each typed as
-    `2026-11-18` or picked from a calendar. Valid-until can't be
-    before the date issued, and a quote needs a line. Confirming saves
-    the form's changes and marks it Quoted together, freezing its
-    figures (see Data); it then opens read-only, showing both dates.
-    The database refuses a non-draft without its dates and frozen
-    totals.
+    Save, asks for the date issued (today) and valid-through (30 days
+    on, until the business profile makes it a setting). Valid-through
+    can't be before the date issued, and a quote needs a line.
+    Confirming saves the form's changes and marks it Quoted together,
+    freezing its figures (see Data); it then opens read-only, showing
+    both dates. The database refuses a non-draft without its dates and
+    frozen totals.
+  - Expiry: Quoted quotes past their valid-through date are marked
+    Expired whenever the list is drawn or a quote is opened. That
+    isn't a save, so the time last saved stays as it was.
+  - Extending (decided 2026-10-19): Extend, on a Quoted or Expired
+    quote, offers 30 more days (picked to start), 7 more days (both
+    counted from the valid-through date, or from today if that's
+    past), or a custom date, showing the new date as it's picked. A
+    setting for which one starts picked may come later. The new date must be
+    later than the old one and not past. Once extended, the quote
+    shows "Extended once; first valid through 11/18/2026" (or "2
+    times", and so on).
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Revisions, expiry, and the extension log.
+1. Revisions (decided 2026-10-19: the list shows one row per quote
+   number, its newest version; older versions are reached from the
+   open quote).
 2. The business profile and tax rates, clients, then the catalog.

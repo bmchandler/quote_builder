@@ -14,6 +14,7 @@ from pathlib import Path
 
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
+    Extension,
     LineItem,
     LineTotals,
     Quote,
@@ -35,6 +36,10 @@ class NoFreeQuoteNumber(Exception):
 
 class NotADraft(Exception):
     """The quote to change isn't a draft in the database."""
+
+
+class NotExtendable(Exception):
+    """The quote to extend isn't Quoted or Expired, or changed meanwhile."""
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -156,6 +161,85 @@ def _overwrite_draft(
     # nothing refers to a line's id.
     conn.execute("DELETE FROM line_items WHERE quote_id = ?", (row["id"],))
     _insert_line_items(conn, row["id"], quote.line_items)
+
+
+def expire_overdue(conn: sqlite3.Connection, today: date) -> None:
+    """Mark Expired every Quoted quote whose valid-through date is past.
+
+    Valid through is inclusive: a quote valid through today is still
+    good today. The time last saved is left alone, as nothing was saved.
+    """
+    with conn:
+        conn.execute(
+            """
+            UPDATE quotes SET status = 'Expired'
+            WHERE status = 'Quoted' AND valid_until < ?
+            """,
+            (_iso(today),),
+        )
+
+
+def extend_quote(
+    conn: sqlite3.Connection,
+    quote: Quote,
+    new_valid_until: date,
+    today: date,
+    now: datetime | None = None,
+) -> Quote:
+    """Move a Quoted or Expired quote's valid-through date later.
+
+    It's Quoted again afterwards, and the change is logged. Returns the
+    updated copy. Raises ValueError, with a message for the user, if the
+    new date isn't later than the old one or is already past; and
+    NotExtendable if the quote isn't Quoted or Expired in the database,
+    or its date changed since it was loaded. `now` as for save_new_quote.
+    """
+    old_valid_until = quote.valid_until
+    if old_valid_until is None or new_valid_until <= old_valid_until:
+        raise ValueError("The new date must be later than the current one")
+    if new_valid_until < today:
+        raise ValueError("The new date can't be in the past")
+    with conn:
+        # As in save_draft, the checks are in the WHERE clause, so checking
+        # and changing are one step.
+        row = conn.execute(
+            """
+            UPDATE quotes
+            SET status = 'Quoted', valid_until = ?, updated_at = ?
+            WHERE number = ? AND revision = ?
+              AND status IN ('Quoted', 'Expired') AND valid_until = ?
+            RETURNING id
+            """,
+            (
+                _iso(new_valid_until),
+                _timestamp(now),
+                quote.number,
+                quote.revision,
+                _iso(old_valid_until),
+            ),
+        ).fetchone()
+        if row is None:
+            raise NotExtendable(f"{quote.number} can't be extended")
+        extension = Extension(today, old_valid_until, new_valid_until)
+        conn.execute(
+            """
+            INSERT INTO quote_extensions
+                (quote_id, extended_on, old_valid_until, new_valid_until)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                _iso(extension.extended_on),
+                _iso(extension.old_valid_until),
+                _iso(extension.new_valid_until),
+            ),
+        )
+    return replace(
+        quote,
+        status=Status.QUOTED,
+        valid_until=new_valid_until,
+        extensions=[*quote.extensions, extension],
+    )
 
 
 def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
@@ -285,7 +369,28 @@ def load_quote(
                 total_cents=row["frozen_total_cents"],
             )
         ),
+        extensions=_extensions_of(conn, row["id"]),
     )
+
+
+def _extensions_of(conn: sqlite3.Connection, quote_id: int) -> list[Extension]:
+    rows = conn.execute(
+        """
+        SELECT extended_on, old_valid_until, new_valid_until
+        FROM quote_extensions
+        WHERE quote_id = ?
+        ORDER BY id
+        """,
+        (quote_id,),
+    ).fetchall()
+    return [
+        Extension(
+            extended_on=date.fromisoformat(row["extended_on"]),
+            old_valid_until=date.fromisoformat(row["old_valid_until"]),
+            new_valid_until=date.fromisoformat(row["new_valid_until"]),
+        )
+        for row in rows
+    ]
 
 
 def _insert_line_items(

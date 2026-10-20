@@ -11,7 +11,13 @@ from datetime import date, datetime
 from nicegui import ui
 
 from quote_builder.data_folder import data_folder
-from quote_builder.dates import default_valid_until, format_date, parse_date
+from quote_builder.dates import (
+    default_valid_until,
+    extended_until,
+    format_date,
+    format_numeric_date,
+    parse_date,
+)
 from quote_builder.money import (
     format_discount,
     format_money,
@@ -23,7 +29,10 @@ from quote_builder.money import (
 )
 from quote_builder.quotes import LineItem, Quote, QuoteSummary, QuoteTotals, Status
 from quote_builder.storage import (
+    NotExtendable,
     connect,
+    expire_overdue,
+    extend_quote,
     list_quotes,
     load_quote,
     mark_quoted,
@@ -38,8 +47,13 @@ from quote_builder.totals import (
 )
 
 
-def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
-    """The function NiceGUI calls to build the page, using `conn`."""
+def quote_page(
+    conn: sqlite3.Connection, today: Callable[[], date] = date.today
+) -> Callable[[], None]:
+    """The function NiceGUI calls to build the page, using `conn`.
+
+    `today` gives the date, for tests to set.
+    """
 
     def root() -> None:
         current: Quote | None = None  # the quote on the right, if any
@@ -56,9 +70,11 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
                 if quote is None:
                     landing()
                 elif quote.status is Status.DRAFT:
-                    has_unsaved_changes = quote_editor(conn, quote, on_saved=show)
+                    has_unsaved_changes = quote_editor(
+                        conn, quote, on_saved=show, today=today
+                    )
                 else:
-                    quote_view(quote)
+                    quote_view(quote, on_extend=lambda: extend(quote))
             quote_list.refresh()
 
         async def may_leave() -> bool:
@@ -77,12 +93,22 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
                 return  # already open
             if not await may_leave():
                 return
+            expire_overdue(conn, today())
             quote = load_quote(conn, number)
             if quote is None:  # deleted since the list was drawn
                 ui.notify(f"No quote {number}", type="warning")
                 quote_list.refresh()
                 return
             show(quote)
+
+        async def extend(quote: Quote) -> None:
+            extended = await ask_extension(conn, quote, today())
+            if extended is not None:
+                ui.notify(
+                    f"{extended.number} valid through "
+                    f"{format_numeric_date(extended.valid_until)}"
+                )
+                show(extended)
 
         # behavior=desktop: always beside the quote. Otherwise Quasar turns
         # it into a pop-over below 1024 pixels wide (the window is 1000).
@@ -97,6 +123,8 @@ def quote_page(conn: sqlite3.Connection) -> Callable[[], None]:
 
             @ui.refreshable
             def quote_list() -> None:
+                # Expire overdue quotes first, so the list shows them so.
+                expire_overdue(conn, today())
                 summaries = list_quotes(conn, search.value or "")
                 if not summaries:
                     ui.label("No quotes found" if search.value else "No quotes yet")
@@ -234,7 +262,10 @@ class LineInputs:
 
 
 def quote_editor(
-    conn: sqlite3.Connection, quote: Quote, on_saved: Callable[[Quote], None]
+    conn: sqlite3.Connection,
+    quote: Quote,
+    on_saved: Callable[[Quote], None],
+    today: Callable[[], date],
 ) -> Callable[[], bool]:
     """A form for a draft, new or saved; `on_saved` gets it once saved.
 
@@ -315,7 +346,7 @@ def quote_editor(
             ui.notify("Add a line before marking it quoted", type="negative")
             return
         name = changed.number or "this new quote"
-        dates = await ask_quoted_dates(name, date.today())
+        dates = await ask_quoted_dates(name, today())
         if dates is None:
             return
         # Saves the form's changes too, in the same transaction.
@@ -352,14 +383,16 @@ def quote_editor(
 
 
 async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
-    """Ask for the issued and valid-until dates to mark `name` quoted.
+    """Ask for the issued and valid-through dates to mark `name` quoted.
 
     None if the user cancels.
     """
     with ui.dialog() as dialog, ui.card():
         ui.label(f"Mark {name} quoted?").classes("text-h6")
         issued = date_input("Issued", today, "issued-on")
-        valid = date_input("Valid until", default_valid_until(today), "valid-until")
+        valid = date_input(
+            "Valid through", default_valid_until(today), "valid-until"
+        )
         ui.label("It can't be edited after this; changes become revisions.")
 
         def confirm() -> None:
@@ -371,7 +404,7 @@ async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
                 return
             if valid_until < issued_on:
                 ui.notify(
-                    "Valid until can't be before the issued date", type="negative"
+                    "Valid through can't be before the issued date", type="negative"
                 )
                 return
             dialog.submit((issued_on, valid_until))
@@ -385,14 +418,80 @@ async def ask_quoted_dates(name: str, today: date) -> tuple[date, date] | None:
     return answer
 
 
-def date_input(label: str, value: date, marker: str) -> ui.input:
-    """A date as text (`2026-11-18`), with a calendar to pick it from."""
-    field = ui.input(label, value=value.isoformat()).mark(marker)
+async def ask_extension(
+    conn: sqlite3.Connection, quote: Quote, today: date
+) -> Quote | None:
+    """Ask how far to extend `quote`, and extend it.
+
+    Returns the extended quote, or None if the user cancels.
+    """
+    # 30 first, as the usual choice (a setting can pick the default later).
+    choices = {"30": "30 more days", "7": "7 more days", "custom": "Custom date"}
+    with ui.dialog() as dialog, ui.card():
+        ui.label(f"Extend {quote.number}?").classes("text-h6")
+        through = format_numeric_date(quote.valid_until)
+        if quote.status is Status.EXPIRED:
+            ui.label(f"Expired; was valid through {through}.")
+        else:
+            ui.label(f"Currently valid through {through}.")
+        choice = ui.radio(choices, value="30", on_change=lambda: show_new_date())
+        choice.props("inline").mark("extend-choice")
+        custom = date_input(
+            "New valid through",
+            extended_until(quote.valid_until, today, 30),
+            "new-valid-until",
+            on_change=lambda: show_new_date(),
+        )
+        custom.bind_visibility_from(choice, "value", value="custom")
+        new_date_label = ui.label().mark("new-valid-through")
+
+        def new_date() -> date:
+            """The date chosen; ValueError if a custom one doesn't read."""
+            if choice.value == "custom":
+                return parse_date(custom.value)
+            return extended_until(quote.valid_until, today, int(choice.value))
+
+        def show_new_date() -> None:
+            try:
+                shown = format_numeric_date(new_date())
+            except ValueError:
+                shown = "—"
+            new_date_label.text = f"New valid through: {shown}"
+
+        def confirm() -> None:
+            try:
+                dialog.submit(extend_quote(conn, quote, new_date(), today))
+            except ValueError as problem:
+                ui.notify(str(problem), type="negative")
+            except NotExtendable:
+                ui.notify(f"{quote.number} changed meanwhile; open it again")
+                dialog.submit(None)
+
+        show_new_date()
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button("Extend", on_click=confirm).mark("confirm-extend")
+    # Esc or a click outside closes it with None, as Cancel does.
+    answer = await dialog
+    dialog.delete()
+    return answer
+
+
+def date_input(
+    label: str,
+    value: date,
+    marker: str,
+    on_change: Callable[[], None] | None = None,
+) -> ui.input:
+    """A date as text (`11/18/2026`), with a calendar to pick it from."""
+    field = ui.input(label, value=format_numeric_date(value), on_change=on_change)
+    field.mark(marker)
     with field:
         # no-parent-event: only the icon opens the calendar, so typing in
-        # the field doesn't. The calendar's YYYY-MM-DD matches parse_date.
+        # the field doesn't. The calendar fills in MM/DD/YYYY, as
+        # parse_date reads.
         with ui.menu().props("no-parent-event") as menu:
-            ui.date(on_change=menu.close).bind_value(field)
+            ui.date(mask="MM/DD/YYYY", on_change=menu.close).bind_value(field)
     with field.add_slot("append"):
         ui.icon("edit_calendar").on("click", menu.open).classes("cursor-pointer")
     return field
@@ -417,14 +516,23 @@ def totals_foot(totals: QuoteTotals | None) -> None:
             ui.label(amount(cents)).classes("text-right" + bold).mark(f"foot-{name}")
 
 
-def quote_view(quote: Quote) -> None:
+def quote_view(quote: Quote, on_extend: Callable[[], None]) -> None:
     """A quote that's no longer a draft, read-only."""
     ui.label(f"{quote.number} ({quote.status})").classes("text-h6").mark("heading")
     if quote.issued_on and quote.valid_until:
         ui.label(
-            f"Issued {format_date(quote.issued_on)} · "
-            f"valid until {format_date(quote.valid_until)}"
+            f"Issued {format_numeric_date(quote.issued_on)} · "
+            f"valid through {format_numeric_date(quote.valid_until)}"
         ).mark("dates")
+    if quote.extensions:
+        count = len(quote.extensions)
+        times = "once" if count == 1 else f"{count} times"
+        first = format_numeric_date(quote.extensions[0].old_valid_until)
+        ui.label(f"Extended {times}; first valid through {first}").classes(
+            "text-grey-7"
+        ).mark("extensions")
+    if quote.status in (Status.QUOTED, Status.EXPIRED):
+        ui.button("Extend", icon="event", on_click=on_extend).props("outline")
     # A quoted quote shows its frozen figures, not ones worked out again.
     for item in quote.line_items:
         text = (

@@ -56,16 +56,27 @@ class LineItem:
     frozen: LineTotals | None = None
 
 
+@dataclass(frozen=True)
+class Extension:
+    """One time a quote's valid-through date was moved later."""
+
+    extended_on: date
+    old_valid_until: date
+    new_valid_until: date
+
+
 @dataclass
 class Quote:
     number: str | None = None  # None until first saved
     revision: int = 0
     status: Status = Status.DRAFT
     issued_on: date | None = None
+    # The last day the quote is good, inclusive ("valid through").
     valid_until: date | None = None
     notes: str = ""
     line_items: list[LineItem] = field(default_factory=list)
     frozen: QuoteTotals | None = None  # stored once quoted, as for lines
+    extensions: list[Extension] = field(default_factory=list)  # oldest first
 
 
 @dataclass

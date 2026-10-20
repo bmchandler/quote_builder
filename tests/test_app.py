@@ -21,9 +21,13 @@ def conn(tmp_path):
     conn.close()
 
 
+TODAY = date(2026, 10, 19)
+
+
 @pytest.fixture
 async def user(conn):
-    async with user_simulation(root=quote_page(conn)) as user:
+    # A fixed today, so quotes made in tests don't expire as time passes.
+    async with user_simulation(root=quote_page(conn, today=lambda: TODAY)) as user:
         await user.open("/")
         yield user
 
@@ -469,15 +473,15 @@ async def test_mark_a_new_quote_quoted(user, conn):
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find("Mark Quoted").click()
     await user.should_see("Mark this new quote quoted?")
-    user.find(marker="issued-on").clear().type("2026-10-19")
-    user.find(marker="valid-until").clear().type("2026-11-18")
+    user.find(marker="issued-on").clear().type("10/19/2026")
+    user.find(marker="valid-until").clear().type("11/18/2026")
     user.find(marker="confirm-quoted").click()
 
     # The click's handler finishes in the background.
     await eventually(lambda: saved_numbers(conn) != [])
     [number] = saved_numbers(conn)
     await user.should_see(f"{number} (Quoted)")
-    await user.should_see("Issued Oct 19, 2026 · valid until Nov 18, 2026")
+    await user.should_see("Issued 10/19/2026 · valid through 11/18/2026")
     await user.should_see(f"{number} · Quoted")
     await user.should_not_see("Save")
     quoted = load_quote(conn, number)
@@ -506,11 +510,8 @@ async def test_dates_default_to_today_and_30_days_on(user):
     user.find("Mark Quoted").click()
     await user.should_see(QUOTE_QUESTION)
 
-    today = date.today()
-    assert value(user.find(marker="issued-on")) == today.isoformat()
-    assert value(user.find(marker="valid-until")) == (
-        today + timedelta(days=30)
-    ).isoformat()
+    assert value(user.find(marker="issued-on")) == "10/19/2026"
+    assert value(user.find(marker="valid-until")) == "11/18/2026"
 
 
 async def test_cancel_leaves_the_draft(user, conn):
@@ -535,7 +536,7 @@ async def test_valid_until_cant_be_before_issued(user, conn):
     user.find(marker="valid-until").clear().type("2026-10-18")
     user.find(marker="confirm-quoted").click()
 
-    await user.should_see("Valid until can't be before the issued date")
+    await user.should_see("Valid through can't be before the issued date")
     await user.should_see(QUOTE_QUESTION)  # still asking
     assert saved_numbers(conn) == []
 
@@ -548,7 +549,7 @@ async def test_date_that_doesnt_read_is_named(user, conn):
     user.find(marker="valid-until").clear().type("next month")
     user.find(marker="confirm-quoted").click()
 
-    await user.should_see("'next month' isn't a date like 2026-11-18")
+    await user.should_see("'next month' isn't a date like 11/18/2026")
     assert saved_numbers(conn) == []
 
 
@@ -568,3 +569,128 @@ async def test_quote_with_no_lines_cant_be_quoted(user, conn):
 
     await user.should_see("Add a line before marking it quoted")
     await user.should_not_see(QUOTE_QUESTION)
+
+
+def quoted(conn, valid_until=VALID_UNTIL):
+    """A quoted quote, issued 9/1/2026, valid through `valid_until`."""
+    quote = Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
+    return mark_quoted(conn, quote, date(2026, 9, 1), valid_until)
+
+
+async def open_saved(user, quote):
+    await reload(user)
+    user.find(marker=f"quote-{quote.number}").click()
+    await eventually(lambda: (heading(user) or "").startswith(quote.number))
+
+
+def choose(user, choice):
+    """Pick an option in the Extend dialog: "7", "30", or "custom"."""
+    [radio] = user.find(marker="extend-choice").elements
+    radio.value = choice
+
+
+async def shows_valid_through(user, shown):
+    """Wait for the open quote's dates line (not the notification, which
+    says the same) to show this valid-through date."""
+    await eventually(
+        lambda: f"valid through {shown}" in text(user.find(marker="dates"))
+    )
+
+
+async def start_extending(user):
+    user.find(kind=ui.button, content="Extend").click()
+    await user.should_see(marker="confirm-extend")
+
+
+async def test_quote_is_good_through_its_last_day(user, conn):
+    saved = quoted(conn, valid_until=TODAY)
+    await reload(user)
+    await user.should_see(f"{saved.number} · Quoted")
+
+
+async def test_quote_expires_the_day_after(user, conn):
+    saved = quoted(conn, valid_until=TODAY - timedelta(days=1))
+    await open_saved(user, saved)
+    await user.should_see(f"{saved.number} (Expired)")
+    await user.should_see(f"{saved.number} · Expired")
+
+
+async def test_extend_30_days(user, conn):
+    saved = quoted(conn)  # valid through 11/18/2026
+    await open_saved(user, saved)
+    await start_extending(user)
+    await user.should_see("Currently valid through 11/18/2026.")
+    [radio] = user.find(marker="extend-choice").elements
+    assert list(radio.options) == ["30", "7", "custom"]  # 30 first, picked
+    assert radio.value == "30"
+    await user.should_see("New valid through: 12/18/2026")
+    user.find(marker="confirm-extend").click()
+
+    await shows_valid_through(user, "12/18/2026")
+    await user.should_see("Extended once; first valid through 11/18/2026")
+    assert load_quote(conn, saved.number).valid_until == date(2026, 12, 18)
+
+
+async def test_extend_7_days(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    await start_extending(user)
+    choose(user, "7")
+    await user.should_see("New valid through: 11/25/2026")
+    user.find(marker="confirm-extend").click()
+
+    await shows_valid_through(user, "11/25/2026")
+
+
+async def test_extend_an_expired_quote_counts_from_today(user, conn):
+    saved = quoted(conn, valid_until=date(2026, 10, 10))
+    await open_saved(user, saved)
+    await user.should_see(f"{saved.number} (Expired)")
+    await start_extending(user)
+    await user.should_see("Expired; was valid through 10/10/2026.")
+    choose(user, "7")
+    await user.should_see("New valid through: 10/26/2026")
+    user.find(marker="confirm-extend").click()
+
+    await user.should_see(f"{saved.number} (Quoted)")
+    await user.should_see(f"{saved.number} · Quoted")
+
+
+async def test_extend_to_a_custom_date(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    await start_extending(user)
+    choose(user, "custom")
+    user.find(marker="new-valid-until").clear().type("11/20/2026")
+    await user.should_see("New valid through: 11/20/2026")
+    user.find(marker="confirm-extend").click()
+
+    await shows_valid_through(user, "11/20/2026")
+
+
+async def test_custom_date_must_be_later(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    await start_extending(user)
+    choose(user, "custom")
+    user.find(marker="new-valid-until").clear().type("11/18/2026")
+    user.find(marker="confirm-extend").click()
+
+    await user.should_see("The new date must be later than the current one")
+    await user.should_see(marker="confirm-extend")  # still asking
+    assert load_quote(conn, saved.number).extensions == []
+
+
+async def test_cancel_extending_changes_nothing(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    await start_extending(user)
+    user.find(kind=ui.button, content="Cancel").click()
+
+    await user.should_not_see(marker="confirm-extend")
+    assert load_quote(conn, saved.number) == saved
+
+
+async def test_draft_has_no_extend_button(user):
+    await new_quote(user)
+    await user.should_not_see(kind=ui.button, content="Extend")

@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_total_cents IS NULL))
 ) STRICT;
 
+-- Each time a quote's valid-through date was moved later, so the
+-- original date and the number of extensions can be looked up.
+CREATE TABLE IF NOT EXISTS quote_extensions (
+    id              INTEGER PRIMARY KEY,
+    quote_id        INTEGER NOT NULL
+                        REFERENCES quotes (id) ON DELETE CASCADE,
+    extended_on     TEXT    NOT NULL,
+    old_valid_until TEXT    NOT NULL,
+    new_valid_until TEXT    NOT NULL,
+    CHECK (new_valid_until > old_valid_until)  -- ISO dates sort as text
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS line_items (
     id               INTEGER PRIMARY KEY,
     quote_id         INTEGER NOT NULL

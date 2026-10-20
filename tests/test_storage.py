@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from quote_builder.quotes import (
+    Extension,
     LineItem,
     LineTotals,
     Quote,
@@ -17,7 +18,10 @@ from quote_builder.storage import (
     MAX_NUMBER_TRIES,
     NoFreeQuoteNumber,
     NotADraft,
+    NotExtendable,
     connect,
+    expire_overdue,
+    extend_quote,
     list_quotes,
     load_quote,
     mark_quoted,
@@ -315,3 +319,102 @@ def test_draft_has_no_frozen_totals(conn):
     loaded = load_quote(conn, saved.number)
     assert loaded.frozen is None
     assert {item.frozen for item in loaded.line_items} == {None}
+
+
+def quoted_lawn(conn):
+    """lawn_quote, quoted 10/19/2026 and valid through 11/18/2026."""
+    return mark_quoted(conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+
+
+def status_of(conn, number):
+    return load_quote(conn, number).status
+
+
+def test_quote_is_good_through_its_last_day(conn):
+    quoted = quoted_lawn(conn)
+    expire_overdue(conn, VALID_UNTIL)
+    assert status_of(conn, quoted.number) is Status.QUOTED
+
+
+def test_quote_expires_the_day_after(conn):
+    quoted = quoted_lawn(conn)
+    expire_overdue(conn, VALID_UNTIL + timedelta(days=1))
+    assert status_of(conn, quoted.number) is Status.EXPIRED
+
+
+def test_expiry_leaves_drafts_and_the_time_saved_alone(conn):
+    quoted = quoted_lawn(conn)
+    draft = save_new_quote(
+        conn, replace(lawn_quote(), valid_until=date(2026, 1, 1)), numbers("Q-222-2222")
+    )
+    before = list_quotes(conn)
+    expire_overdue(conn, date(2027, 1, 1))
+    assert status_of(conn, draft.number) is Status.DRAFT
+    assert [s.updated_at for s in list_quotes(conn)] == [
+        s.updated_at for s in before
+    ]
+    assert status_of(conn, quoted.number) is Status.EXPIRED
+
+
+def test_extend_a_quoted_quote(conn):
+    quoted = quoted_lawn(conn)
+    today = date(2026, 11, 10)
+    extended = extend_quote(conn, quoted, date(2026, 11, 25), today)
+    assert extended.valid_until == date(2026, 11, 25)
+    assert extended.status is Status.QUOTED
+    assert extended.extensions == [
+        Extension(today, VALID_UNTIL, date(2026, 11, 25))
+    ]
+    assert load_quote(conn, quoted.number) == extended
+
+
+def test_extend_an_expired_quote_quotes_it_again(conn):
+    quoted = quoted_lawn(conn)
+    today = date(2026, 11, 20)
+    expire_overdue(conn, today)
+    expired = load_quote(conn, quoted.number)
+    extended = extend_quote(conn, expired, date(2026, 12, 20), today)
+    assert extended.status is Status.QUOTED
+    assert load_quote(conn, quoted.number) == extended
+
+
+def test_extensions_are_kept_oldest_first(conn):
+    quoted = quoted_lawn(conn)
+    once = extend_quote(conn, quoted, date(2026, 11, 25), date(2026, 11, 10))
+    twice = extend_quote(conn, once, date(2026, 12, 2), date(2026, 11, 24))
+    assert [e.old_valid_until for e in load_quote(conn, quoted.number).extensions] == [
+        VALID_UNTIL,
+        date(2026, 11, 25),
+    ]
+    assert twice.valid_until == date(2026, 12, 2)
+
+
+@pytest.mark.parametrize(
+    ("new", "message"),
+    [
+        (VALID_UNTIL, "must be later than the current one"),
+        (date(2026, 11, 1), "must be later than the current one"),
+        (date(2026, 11, 19), "can't be in the past"),
+    ],
+)
+def test_extend_refuses_a_date_not_later_or_past(conn, new, message):
+    quoted = quoted_lawn(conn)
+    with pytest.raises(ValueError, match=message):
+        extend_quote(conn, quoted, new, today=date(2026, 11, 20))
+    assert load_quote(conn, quoted.number) == quoted
+
+
+def test_draft_cant_be_extended(conn):
+    saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
+    with pytest.raises(NotExtendable):
+        extend_quote(conn, saved, date(2026, 12, 31), date(2026, 11, 1))
+    assert load_quote(conn, saved.number).extensions == []
+
+
+def test_extend_refuses_a_quote_changed_since_loaded(conn):
+    quoted = quoted_lawn(conn)
+    extend_quote(conn, quoted, date(2026, 11, 25), date(2026, 11, 10))
+    # The stale copy still says valid through 11/18.
+    with pytest.raises(NotExtendable):
+        extend_quote(conn, quoted, date(2026, 11, 30), date(2026, 11, 10))
+    assert len(load_quote(conn, quoted.number).extensions) == 1
