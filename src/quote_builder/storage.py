@@ -72,13 +72,14 @@ def current_business(conn: sqlite3.Connection) -> Business:
         )
         row = conn.execute(
             """
-            SELECT id, valid_days, extend_days
+            SELECT id, name, pilot, valid_days, extend_days
             FROM businesses
             ORDER BY id
             LIMIT 1
             """
         ).fetchone()
-    return Business(**dict(row))  # the columns are named as its fields
+    # The columns are named as its fields; pilot is stored as 0 or 1.
+    return Business(**{**dict(row), "pilot": bool(row["pilot"])})
 
 
 def save_business(conn: sqlite3.Connection, business: Business) -> None:
@@ -87,7 +88,8 @@ def save_business(conn: sqlite3.Connection, business: Business) -> None:
         conn.execute(
             """
             UPDATE businesses
-            SET valid_days = :valid_days, extend_days = :extend_days
+            SET name = :name, pilot = :pilot, valid_days = :valid_days,
+                extend_days = :extend_days
             WHERE id = :id
             """,
             vars(business),

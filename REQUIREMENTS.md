@@ -40,6 +40,14 @@ Future (not now):
 - Printing a quote, and exporting it as a PDF (put off until much
   later, decided 2026-10-17). Print straight from the app first, if the
   native window can. A PDF library must have an MIT-like license.
+  It brings the business's details and terms (see Data), copied onto
+  a quote when it's marked Quoted, and a From and To on the printout:
+  for a pilot, a person's name and contact details, never the
+  pilot's name. Layouts to weigh then, from sketches on 2026-10-24:
+  a letterhead above the heading, the details at the top right
+  beside the heading, or From and To boxes under it (a single line
+  of details was ruled out).
+- A banner image at the top left instead of the business's name.
 - A simple dashboard (quote counts, extensions, and the like).
 - A time of day on the valid-through date, such as the end of office
   hours: "Valid through 11/18/2026 6:30 pm EST" (decided 2026-10-19).
@@ -57,18 +65,26 @@ Future (not now):
 Money is held as a whole number of cents, never as a float; amounts
 are worked out with `Decimal` and rounded to the cent where shown.
 
-- **Business** (one or more): name, phone, email, website, address
-  (one field, as typed), terms printed at the foot of each quote, how
-  many days a new quote is valid for (30 to start), how many days
-  Extend offers first, and later a logo
-  (with printing) and default tax rate (with tax rates). Every detail
-  is optional, the name too (decided 2026-10-20): work often starts
-  before a business has a legal name, and software that won't start
-  without one is a common irritation. An unnamed business is made on
-  first start, filled in later from Settings. A quoted quote will
-  keep a copy of its business's details as they were (as with its
-  figures), so a later change doesn't alter what a client was given;
-  to give a client new details, revise the quote.
+- **Business** (one or more): a business or a pilot (decided
+  2026-10-24), and a name. A pilot is an idea being tried out, not
+  yet worth a business of its own; its name says what the work is
+  (`Pressure washing`), for the user to tell pilots apart, and is
+  never printed. A business's name (`John Doe's Lawn Service`) is
+  the one clients see. A pilot becomes a business by switching it to
+  Business and naming it, in its Settings: its quotes stay with it,
+  as they belong to it, not to its name. Also how many days a new
+  quote is valid for (30 to start) and how many days Extend offers
+  first; later, for printing, phone, email, website, address (one
+  field, as typed), terms printed at the foot of each quote, and a
+  logo; for a pilot, a person's name and contact details instead of
+  a business name. A default tax rate comes with tax rates. Every
+  detail is optional, the name too (decided 2026-10-20): work often
+  starts before a business has a legal name, and software that won't
+  start without one is a common irritation. An unnamed business is
+  made on first start, filled in later from Settings. A quoted quote
+  will keep a copy of its business's details as they were (as with
+  its figures), so a later change doesn't alter what a client was
+  given; to give a client new details, revise the quote.
 - **Client**: name, email, phone, address.
 - **Tax rate**: a name (`Home county`) and its parts, each a name and a
   percent (State 4.75%, County 1.5%, City 1%); its combined rate is
@@ -211,16 +227,17 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
 ## Status and plan
 
-Built (as of 2026-10-20), each with tests:
+Built (as of 2026-10-24), each with tests:
 
 - Quote numbers (quote_numbers.py).
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
   line items, saving changes to a draft (lines replaced), loading one
   back, and listing quotes with search. A business and its settings
-  (business.py): one so far, made on first start, holding days valid
-  and Extend's days so far. The table is shaped for several businesses ahead of
-  time (agreed 2026-10-20): they're certain to come, and moving
-  settings into it later would be work undone.
+  (business.py): one so far, made on first start, holding whether
+  it's a pilot, its name, days valid, and Extend's days so far. The
+  table is shaped for several businesses ahead of time (agreed
+  2026-10-20): they're certain to come, and moving settings into it
+  later would be work undone.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -238,13 +255,18 @@ Built (as of 2026-10-20), each with tests:
     scrolls on its own, below Search and New Quote.
   - Settings (decided 2026-10-20): at the bottom of the side panel,
     below a divider, a Settings button opens the business's settings
-    on the right, with Save: so far "Quotes valid for (days)", which
-    Mark Quoted's valid-through starts from, and "Extend by (days)",
-    blank to start, which picks Extend's first choice. Each is a
-    whole number above 0; a message names the field that isn't.
-    Leaving it with unsaved changes asks first, as a quote's form
-    does. The title at the top left stays "Quote Builder" (maybe with
-    a version later).
+    on the right, with Save. First, Business or Pilot (Business to
+    start) and Name (decided 2026-10-24), whose example follows the
+    choice: "John Doe's Lawn Service", or "Pressure washing" with the
+    note "An activity name works well. Pilots show in italics in the
+    list." Then "Quotes valid for (days)", which Mark Quoted's
+    valid-through starts from, and "Extend by (days)", blank to start,
+    which picks Extend's first choice. Each is a whole number above 0;
+    a message names the field that isn't. Leaving it with unsaved
+    changes asks first, as a quote's form does.
+  - The top left (decided 2026-10-24) shows "Quote Builder" until the
+    business has a name, then the name, in italics for a pilot. The
+    window's title stays "Quote Builder".
   - Search matches are highlighted (decided 2026-10-19), in a soft
     amber, in the row's number and first line. A match the row doesn't
     show (notes, a later line, an older version) adds a small italic
@@ -333,17 +355,18 @@ Built (as of 2026-10-20), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Business details on quotes (planned 2026-10-20): name, phone,
-   email, website, and address in Settings, shown on each quote and
-   copied onto it when it's marked Quoted (see Data). Where on the
-   quote: to ask before building.
-2. Terms: in Settings, shown at the foot of each quote, frozen the
-   same way.
-3. More than one business (planned 2026-10-20): quotes belong to a
-   business, and the app shows one at a time (list and search cover
-   only its quotes). Beside Settings, the current business's name
-   (or "Unnamed business") with a menu of the others and "Add
-   business…". Later, with only one business, the top left could
-   offer its name or a banner image instead of "Quote Builder".
-4. Tax rates (and the business's default), clients, then the
+1. More than one business (planned 2026-10-20; reworked 2026-10-24):
+   quotes belong to a business or pilot, and the app shows one at a
+   time (list and search cover only its quotes). Settings lists them,
+   each with its name and whether it's a business or a pilot, with
+   "Add business or pilot…" below. Once there's a second, the top
+   left becomes a dropdown of their names only (pilots in italics);
+   picking one shows its quotes. A name is needed once there's more
+   than one, so no row is blank.
+2. Tax rates (and the business's default), clients, then the
    catalog.
+
+Business details and terms wait for printing (decided 2026-10-24):
+the app doesn't need them on screen, and keeping them to the
+printout leaves its layout, wording, and output free to change apart
+from the working screen. See Future.

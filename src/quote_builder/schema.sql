@@ -10,6 +10,11 @@
 -- table is shaped for several, as the plan has them.
 CREATE TABLE IF NOT EXISTS businesses (
     id         INTEGER PRIMARY KEY,
+    -- Blank until given; a pilot's is what the work is, not a business's.
+    name       TEXT    NOT NULL DEFAULT '',
+    -- 1 for a pilot (an idea being tried out), 0 for a business. STRICT
+    -- has no boolean type.
+    pilot      INTEGER NOT NULL DEFAULT 0 CHECK (pilot IN (0, 1)),
     -- Days from issue to a new quote's valid-through date.
     valid_days INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0),
     -- Days Extend offers first; NULL (unset) for its own first, 30. A

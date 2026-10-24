@@ -553,13 +553,22 @@ def test_a_business_is_made_the_first_time(conn):
     business = current_business(conn)
     assert business.id is not None
     assert business.valid_days == 30
+    assert business.name == ""
+    assert business.pilot is False
     assert current_business(conn) == business  # not a second one
 
 
 def test_save_business(conn):
-    business = replace(current_business(conn), valid_days=14, extend_days=7)
+    business = replace(
+        current_business(conn),
+        name="Pressure washing",
+        pilot=True,
+        valid_days=14,
+        extend_days=7,
+    )
     save_business(conn, business)
     assert current_business(conn) == business
+    assert current_business(conn).pilot is True  # a bool, not the stored 1
     save_business(conn, replace(business, extend_days=None))  # unset again
     assert current_business(conn).extend_days is None
 

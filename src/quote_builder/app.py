@@ -134,6 +134,7 @@ def quote_page(
                 editor = business_settings(
                     conn, current_business(conn), on_saved=show_settings
                 )
+            title.refresh()  # the name may have changed
             quote_list.refresh()  # no quote highlighted
 
         async def open_settings() -> None:
@@ -215,7 +216,17 @@ def quote_page(
         with ui.left_drawer(value=True, fixed=True).props(
             "width=350 bordered behavior=desktop"
         ).mark("side-panel"):
-            ui.label("Quote Builder").classes("text-h6")
+
+            @ui.refreshable
+            def title() -> None:
+                # The business's name once it has one; a pilot's in italics.
+                business = current_business(conn)
+                label = ui.label(business.name or "Quote Builder")
+                label.classes("text-h6").mark("title")
+                if business.name and business.pilot:
+                    label.classes("italic")
+
+            title()
             search = ui.input("Search", on_change=search_changed).props(
                 "clearable"
             ).classes("w-full").mark("search")
@@ -363,6 +374,37 @@ def business_settings(
     """A form for the business's settings; `on_saved` runs once they're
     saved."""
     ui.label("Settings").classes("text-h6").mark("heading")
+    kind = (
+        ui.radio(
+            {"business": "Business", "pilot": "Pilot"},
+            value="pilot" if business.pilot else "business",
+            on_change=lambda: show_kind(),
+        )
+        .props("inline")
+        .mark("business-kind")
+    )
+    # stack-label: the label stays above the field, so the example in
+    # the placeholder shows while it's blank. Quasar draws it as dark
+    # as typed text, which reads as a name already given: greyed here.
+    name = (
+        ui.input("Name", value=business.name)
+        .props('stack-label input-class="placeholder:text-gray-400"')
+        .classes("w-96")
+        .mark("business-name")
+    )
+
+    def show_kind() -> None:
+        """The name's example and note follow the kind picked."""
+        if kind.value == "pilot":
+            name.props["placeholder"] = "Pressure washing"
+            name.props["hint"] = (
+                "An activity name works well. Pilots show in italics in the list."
+            )
+        else:
+            name.props["placeholder"] = "John Doe's Lawn Service"
+            name.props.pop("hint", None)  # props is observed: no update() needed
+
+    show_kind()
     valid_days = (
         ui.input("Quotes valid for (days)", value=str(business.valid_days))
         .props('hint="Mark Quoted starts valid-through this many days on"')
@@ -375,7 +417,7 @@ def business_settings(
         .classes("w-96")
         .mark("business-extend-days")
     )
-    fields = [valid_days, extend_days]
+    fields = [kind, name, valid_days, extend_days]
 
     def save() -> None:
         # A cleared input's value is None, not "".
@@ -391,7 +433,14 @@ def business_settings(
             except ValueError as problem:
                 ui.notify(f"Extend by: {problem}", type="negative")
                 return
-        save_business(conn, replace(business, valid_days=days, extend_days=extend))
+        changed = replace(
+            business,
+            name=(name.value or "").strip(),
+            pilot=kind.value == "pilot",
+            valid_days=days,
+            extend_days=extend,
+        )
+        save_business(conn, changed)
         ui.notify("Settings saved")
         on_saved()
 

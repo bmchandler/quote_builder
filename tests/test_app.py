@@ -1158,6 +1158,72 @@ async def test_settings_refuse_blank_valid_days(user, conn):
     assert current_business(conn).valid_days == 30
 
 
+def title(user):
+    return text(user.find(marker="title"))
+
+
+def is_italic(user):
+    [label] = user.find(marker="title").elements
+    return "italic" in label.classes
+
+
+async def test_the_top_left_shows_the_name_once_given(user, conn):
+    assert title(user) == "Quote Builder"
+    await open_settings(user)
+    user.find(marker="business-name").type("  John Doe's Lawn Service ")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Settings saved")
+    assert current_business(conn).name == "John Doe's Lawn Service"
+    await eventually(lambda: title(user) == "John Doe's Lawn Service")
+    assert not is_italic(user)
+
+
+async def test_a_pilots_name_is_in_italics(user, conn):
+    await open_settings(user)
+    [kind] = user.find(marker="business-kind").elements
+    kind.value = "pilot"
+    user.find(marker="business-name").type("Pressure washing")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Settings saved")
+    assert current_business(conn).pilot is True
+    await eventually(lambda: title(user) == "Pressure washing")
+    assert is_italic(user)
+
+
+async def test_a_pilot_without_a_name_shows_quote_builder(user, conn):
+    save_business(conn, replace(current_business(conn), pilot=True))
+    await reload(user)
+    assert title(user) == "Quote Builder"
+    assert not is_italic(user)
+
+
+async def test_the_name_example_follows_the_kind(user):
+    await open_settings(user)
+    [kind] = user.find(marker="business-kind").elements
+    [name] = user.find(marker="business-name").elements
+    assert name.props["placeholder"] == "John Doe's Lawn Service"
+    assert "hint" not in name.props
+
+    kind.value = "pilot"
+    await eventually(lambda: name.props["placeholder"] == "Pressure washing")
+    assert name.props["hint"] == (
+        "An activity name works well. Pilots show in italics in the list."
+    )
+    kind.value = "business"
+    await eventually(lambda: "hint" not in name.props)
+
+
+async def test_changing_the_kind_counts_as_a_change(user):
+    await open_settings(user)
+    [kind] = user.find(marker="business-kind").elements
+    kind.value = "pilot"
+    user.find("New Quote").click()
+
+    await user.should_see(DISCARD_QUESTION)
+
+
 async def test_leaving_changed_settings_asks(user):
     await open_settings(user)
     user.find(marker="business-valid-days").clear().type("14")
