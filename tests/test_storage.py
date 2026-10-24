@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from quote_builder.business import Business
 from quote_builder.quotes import (
     Extension,
     LineItem,
@@ -18,17 +19,21 @@ from quote_builder.quotes import (
 )
 from quote_builder.storage import (
     MAX_NUMBER_TRIES,
+    NameNeeded,
     NoFreeQuoteNumber,
     NotADraft,
     NotExtendable,
+    add_business,
     connect,
     current_business,
     expire_overdue,
     extend_quote,
+    list_businesses,
     list_quotes,
     list_versions,
     load_quote,
     mark_quoted,
+    pick_business,
     save_business,
     save_draft,
     save_new_quote,
@@ -40,8 +45,17 @@ from quote_builder.storage import (
 @pytest.fixture
 def conn(tmp_path):
     conn = connect(tmp_path / "quotes.db")
+    current_business(conn)  # made first, so its id is BUSINESS
     yield conn
     conn.close()
+
+
+BUSINESS = 1  # the business made on first start, whose quotes tests make
+
+
+def make_quote(**fields):
+    """A Quote of BUSINESS, as each needs a business to be saved."""
+    return Quote(business_id=BUSINESS, **fields)
 
 
 def numbers(*drawn):
@@ -50,7 +64,7 @@ def numbers(*drawn):
 
 
 def lawn_quote():
-    return Quote(
+    return make_quote(
         issued_on=date(2026, 10, 18),
         valid_until=date(2026, 11, 17),
         notes="Front and back yard.",
@@ -83,7 +97,7 @@ def test_foreign_keys_are_enforced(conn):
 
 
 def test_new_quote_gets_a_number(conn):
-    saved = save_new_quote(conn, Quote(), numbers("Q-7KQ-M9XD"))
+    saved = save_new_quote(conn, make_quote(), numbers("Q-7KQ-M9XD"))
     assert saved.number == "Q-7KQ-M9XD"
     assert saved.revision == 0
     assert saved.status is Status.DRAFT
@@ -103,6 +117,7 @@ def test_saving_leaves_the_given_quote_alone(conn):
 def test_saved_quote_survives_reconnecting(tmp_path):
     path = tmp_path / "quotes.db"
     conn = connect(path)
+    current_business(conn)  # BUSINESS, as the conn fixture makes
     saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
     conn.close()
     conn = connect(path)
@@ -115,13 +130,13 @@ def test_missing_quote_loads_as_none(conn):
 
 
 def test_number_already_used_is_drawn_again(conn):
-    save_new_quote(conn, Quote(), numbers("Q-7KQ-M9XD"))
-    saved = save_new_quote(conn, Quote(), numbers("Q-7KQ-M9XD", "Q-AB1-2CD3"))
+    save_new_quote(conn, make_quote(), numbers("Q-7KQ-M9XD"))
+    saved = save_new_quote(conn, make_quote(), numbers("Q-7KQ-M9XD", "Q-AB1-2CD3"))
     assert saved.number == "Q-AB1-2CD3"
 
 
 def test_gives_up_when_every_number_is_used(conn):
-    save_new_quote(conn, Quote(), numbers("Q-7KQ-M9XD"))
+    save_new_quote(conn, make_quote(), numbers("Q-7KQ-M9XD"))
     with pytest.raises(NoFreeQuoteNumber):
         save_new_quote(conn, lawn_quote(), numbers(*["Q-7KQ-M9XD"] * MAX_NUMBER_TRIES))
     count = conn.execute("SELECT count(*) FROM line_items").fetchone()[0]
@@ -129,7 +144,7 @@ def test_gives_up_when_every_number_is_used(conn):
 
 
 def test_line_with_both_discounts_is_refused(conn):
-    both = Quote(
+    both = make_quote(
         line_items=[
             LineItem(
                 "Mow lawn",
@@ -199,10 +214,10 @@ def at(minute):
 
 def test_list_quotes_last_changed_first(conn):
     first = save_new_quote(conn, lawn_quote(), numbers("Q-111-1111"), now=at(0))
-    save_new_quote(conn, Quote(), numbers("Q-222-2222"), now=at(1))
+    save_new_quote(conn, make_quote(), numbers("Q-222-2222"), now=at(1))
     save_draft(conn, replace(first, notes="Changed"), now=at(2))
 
-    summaries = list_quotes(conn)
+    summaries = list_quotes(conn, BUSINESS)
     assert [s.number for s in summaries] == ["Q-111-1111", "Q-222-2222"]
     assert summaries[0] == QuoteSummary(
         number="Q-111-1111",
@@ -223,7 +238,7 @@ def test_updated_at_is_kept_in_utc_to_the_second(conn):
     eastern = timezone(timedelta(hours=-4))
     save_new_quote(
         conn,
-        Quote(),
+        make_quote(),
         numbers("Q-111-1111"),
         now=datetime(2026, 10, 19, 6, 0, 0, 750000, tzinfo=eastern),
     )
@@ -236,22 +251,22 @@ def test_updated_at_is_kept_in_utc_to_the_second(conn):
 )
 def test_search_matches_number_lines_and_notes(conn, search):
     save_new_quote(conn, lawn_quote(), numbers("Q-111-1111"), now=at(0))
-    save_new_quote(conn, Quote(notes="Gutters"), numbers("Q-222-2222"), now=at(1))
-    assert [s.number for s in list_quotes(conn, search)] == ["Q-111-1111"]
+    save_new_quote(conn, make_quote(notes="Gutters"), numbers("Q-222-2222"), now=at(1))
+    assert [s.number for s in list_quotes(conn, BUSINESS,search)] == ["Q-111-1111"]
 
 
 def test_search_finds_nothing(conn):
     save_new_quote(conn, lawn_quote(), numbers("Q-111-1111"))
-    assert list_quotes(conn, "snow") == []
+    assert list_quotes(conn, BUSINESS,"snow") == []
 
 
 @pytest.mark.parametrize("search", ["%", "_", "\\"])
 def test_search_wildcards_match_only_themselves(conn, search):
     save_new_quote(conn, lawn_quote(), numbers("Q-111-1111"), now=at(0))
     save_new_quote(
-        conn, Quote(notes="10% off, path_1\\2"), numbers("Q-222-2222"), now=at(1)
+        conn, make_quote(notes="10% off, path_1\\2"), numbers("Q-222-2222"), now=at(1)
     )
-    assert [s.number for s in list_quotes(conn, search)] == ["Q-222-2222"]
+    assert [s.number for s in list_quotes(conn, BUSINESS,search)] == ["Q-222-2222"]
 
 
 # $45 + ($75 - 10%) + ($18.99 - $2 + 7.25% tax), as in lawn_quote.
@@ -281,7 +296,7 @@ def test_mark_a_saved_draft_quoted_with_its_changes(conn):
     quoted = mark_quoted(conn, changed, ISSUED, VALID_UNTIL)
     assert quoted.notes == "Back yard only."
     assert load_quote(conn, "Q-7KQ-M9XD") == quoted
-    assert [s.number for s in list_quotes(conn)] == ["Q-7KQ-M9XD"]
+    assert [s.number for s in list_quotes(conn, BUSINESS)] == ["Q-7KQ-M9XD"]
 
 
 def test_mark_quoted_leaves_the_given_quote_alone(conn):
@@ -308,7 +323,7 @@ def test_frozen_figures_are_shown_not_worked_out_again(conn):
     quote = load_quote(conn, "Q-7KQ-M9XD")
     assert quote.frozen.total_cents == 1
     assert {item.frozen.tax_cents for item in quote.line_items} == {2}
-    assert list_quotes(conn)[0].total_cents == 1
+    assert list_quotes(conn, BUSINESS)[0].total_cents == 1
 
 
 def test_quoted_needs_its_frozen_totals(conn):
@@ -356,10 +371,10 @@ def test_expiry_leaves_drafts_and_the_time_saved_alone(conn):
     draft = save_new_quote(
         conn, replace(lawn_quote(), valid_until=date(2026, 1, 1)), numbers("Q-222-2222")
     )
-    before = list_quotes(conn)
+    before = list_quotes(conn, BUSINESS)
     expire_overdue(conn, date(2027, 1, 1))
     assert status_of(conn, draft.number) is Status.DRAFT
-    assert [s.updated_at for s in list_quotes(conn)] == [
+    assert [s.updated_at for s in list_quotes(conn, BUSINESS)] == [
         s.updated_at for s in before
     ]
     assert status_of(conn, quoted.number) is Status.EXPIRED
@@ -491,7 +506,7 @@ def test_list_shows_each_quotes_newest_version(conn):
         conn,
         replace(revision_draft(quoted, 1), line_items=[LineItem("Edge", Decimal(1), 1500)]),
     )
-    [summary] = list_quotes(conn)
+    [summary] = list_quotes(conn, BUSINESS)
     assert (summary.number, summary.revision, summary.status) == (
         "Q-7KQ-M9XD",
         1,
@@ -506,7 +521,7 @@ def test_search_matches_any_version(conn):
         conn,
         replace(revision_draft(quoted, 1), line_items=[LineItem("Edge", Decimal(1), 1500)]),
     )
-    [summary] = list_quotes(conn, "hedges")
+    [summary] = list_quotes(conn, BUSINESS,"hedges")
     assert summary.revision == 1  # the row still shows the newest
 
 
@@ -531,7 +546,7 @@ def test_search_texts_of_every_version_newest_first(conn):
             line_items=[LineItem("Edge", Decimal(1), 1500)],
         ),
     )
-    save_new_quote(conn, Quote(notes="Gutters"), numbers("Q-222-2222"))
+    save_new_quote(conn, make_quote(notes="Gutters"), numbers("Q-222-2222"))
 
     texts = search_texts(conn, ["Q-7KQ-M9XD"])
     assert texts == {
@@ -583,3 +598,90 @@ def test_business_valid_days_must_be_above_zero(conn):
     business = replace(current_business(conn), valid_days=0)
     with pytest.raises(sqlite3.IntegrityError):
         save_business(conn, business)
+
+
+def test_add_a_business(conn):
+    added = add_business(conn, Business(name="Acme", valid_days=14))
+    assert added.id is not None
+    assert list_businesses(conn)[1] == added  # after the unnamed one
+
+
+def test_a_new_business_needs_a_name(conn):
+    with pytest.raises(NameNeeded):
+        add_business(conn, Business())
+    assert len(list_businesses(conn)) == 1
+
+
+def test_a_lone_business_can_go_unnamed(conn):
+    business = replace(current_business(conn), name="Acme")
+    save_business(conn, business)
+    save_business(conn, replace(business, name=""))
+    assert current_business(conn).name == ""
+
+
+def test_a_name_cant_be_cleared_once_there_are_two(conn):
+    business = replace(current_business(conn), name="Acme")
+    save_business(conn, business)
+    add_business(conn, Business(name="Pressure washing", pilot=True))
+    with pytest.raises(NameNeeded):
+        save_business(conn, replace(business, name="", valid_days=14))
+    assert current_business(conn) == business  # nothing changed
+
+
+def test_businesses_list_before_pilots_by_name_in_any_case(conn):
+    save_business(conn, replace(current_business(conn), name="lawn care"))
+    for name, pilot in [("Gift baskets", True), ("decks", True), ("Acme", False)]:
+        add_business(conn, Business(name=name, pilot=pilot))
+    names = [b.name for b in list_businesses(conn)]
+    assert names == ["Acme", "lawn care", "decks", "Gift baskets"]
+
+
+def test_the_first_business_is_current_until_another_is_picked(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    assert current_business(conn).id == BUSINESS
+    pick_business(conn, acme.id)
+    assert current_business(conn) == acme
+    pick_business(conn, BUSINESS)  # picked again: the one row changes
+    assert current_business(conn).id == BUSINESS
+
+
+def test_the_picked_business_survives_reconnecting(tmp_path):
+    path = tmp_path / "quotes.db"
+    conn = connect(path)
+    current_business(conn)
+    acme = add_business(conn, Business(name="Acme"))
+    pick_business(conn, acme.id)
+    conn.close()
+    conn = connect(path)
+    assert current_business(conn) == acme
+    conn.close()
+
+
+def test_list_quotes_only_of_the_business(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    save_new_quote(conn, make_quote(notes="Ours"), numbers("Q-111-1111"))
+    save_new_quote(
+        conn, Quote(business_id=acme.id, notes="Theirs"), numbers("Q-222-2222")
+    )
+    assert [s.number for s in list_quotes(conn, BUSINESS)] == ["Q-111-1111"]
+    assert [s.number for s in list_quotes(conn, acme.id, "theirs")] == ["Q-222-2222"]
+    assert list_quotes(conn, BUSINESS, "theirs") == []
+
+
+def test_a_quote_needs_a_business(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        save_new_quote(conn, Quote(), numbers("Q-111-1111"))
+
+
+def test_a_revision_keeps_the_quotes_business(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    quoted = mark_quoted(
+        conn,
+        replace(lawn_quote(), business_id=acme.id),
+        ISSUED,
+        VALID_UNTIL,
+        numbers("Q-7KQ-M9XD"),
+    )
+    save_revision(conn, revision_draft(quoted, 1))
+    assert load_quote(conn, "Q-7KQ-M9XD").business_id == acme.id
+    assert [s.revision for s in list_quotes(conn, acme.id)] == [1]

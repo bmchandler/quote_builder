@@ -6,8 +6,7 @@
 -- decimals (quantities, percents) are TEXT, read back as Decimal; dates
 -- are TEXT in ISO 8601 (2026-10-18), which also sorts correctly.
 
--- A business the user quotes for, and its settings. One so far; the
--- table is shaped for several, as the plan has them.
+-- A business (or pilot) the user quotes for, and its settings.
 CREATE TABLE IF NOT EXISTS businesses (
     id         INTEGER PRIMARY KEY,
     -- Blank until given; a pilot's is what the work is, not a business's.
@@ -22,8 +21,17 @@ CREATE TABLE IF NOT EXISTS businesses (
     extend_days INTEGER CHECK (extend_days > 0)
 ) STRICT;
 
+-- What the app remembers between runs: one row at most (id 1).
+CREATE TABLE IF NOT EXISTS app_state (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    -- The business picked last, which the app opens on.
+    business_id INTEGER REFERENCES businesses (id)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS quotes (
     id          INTEGER PRIMARY KEY,
+    -- Every version of a quote belongs to the same business.
+    business_id INTEGER NOT NULL REFERENCES businesses (id),
     number      TEXT    NOT NULL,                -- Q-7KQ-M9XD
     revision    INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     status      TEXT    NOT NULL DEFAULT 'Draft' CHECK (status IN

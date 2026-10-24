@@ -11,12 +11,17 @@ from nicegui import ui
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
+from quote_builder.business import Business
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
+    add_business,
     connect,
     current_business,
+    list_businesses,
+    list_quotes,
     load_quote,
     mark_quoted,
+    pick_business,
     save_business,
     save_new_quote,
     save_revision,
@@ -26,8 +31,17 @@ from quote_builder.storage import (
 @pytest.fixture
 def conn(tmp_path):
     conn = connect(tmp_path / "quotes.db")
+    current_business(conn)  # made first, so its id is BUSINESS
     yield conn
     conn.close()
+
+
+BUSINESS = 1  # the business made on first start, which the page shows
+
+
+def make_quote(**fields):
+    """A Quote of BUSINESS, as each needs a business to be saved."""
+    return Quote(business_id=BUSINESS, **fields)
 
 
 TODAY = date(2026, 10, 19)
@@ -160,7 +174,7 @@ async def test_line_needs_a_description(user, conn):
 
 
 async def test_open_a_draft_to_edit(user, conn):
-    quote = Quote(
+    quote = make_quote(
         notes="Front yard.",
         line_items=[LineItem("Trim hedges", Decimal("2.5"), 123456)],
     )
@@ -195,7 +209,7 @@ async def test_save_changes_to_a_draft(user, conn):
 
 
 async def test_reopened_draft_saves_unchanged(user, conn):
-    quote = Quote(line_items=[LineItem("Trim hedges", Decimal("2.5"), 123456)])
+    quote = make_quote(line_items=[LineItem("Trim hedges", Decimal("2.5"), 123456)])
     saved = save_new_quote(conn, quote)
 
     await reload(user)
@@ -211,7 +225,7 @@ VALID_UNTIL = date(2026, 11, 18)
 
 
 async def test_open_a_quoted_quote_read_only(user, conn):
-    quote = Quote(line_items=[LineItem("Mow lawn", Decimal("1"), 4500)])
+    quote = make_quote(line_items=[LineItem("Mow lawn", Decimal("1"), 4500)])
     saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
 
     await reload(user)
@@ -237,8 +251,8 @@ async def test_list_shows_saved_quotes_newest_first(user, conn):
 
 
 async def test_open_quote_is_highlighted_in_the_list(user, conn):
-    first = save_new_quote(conn, Quote())
-    second = save_new_quote(conn, Quote())
+    first = save_new_quote(conn, make_quote())
+    second = save_new_quote(conn, make_quote())
     await reload(user)
 
     user.find(marker=f"quote-{first.number}").click()
@@ -251,8 +265,8 @@ async def test_list_starts_empty(user):
 
 
 async def test_search_filters_the_list(user, conn):
-    lawn = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
-    gutters = save_new_quote(conn, Quote(notes="Clean gutters"))
+    lawn = save_new_quote(conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    gutters = save_new_quote(conn, make_quote(notes="Clean gutters"))
     await reload(user)
 
     user.find(marker="search").type("GUTTER")
@@ -264,7 +278,7 @@ async def test_search_filters_the_list(user, conn):
 
 
 async def test_open_a_quote_deleted_since_listed(user, conn):
-    saved = save_new_quote(conn, Quote())
+    saved = save_new_quote(conn, make_quote())
     await reload(user)
     conn.execute("DELETE FROM quotes")
     conn.commit()
@@ -366,7 +380,7 @@ async def test_discount_over_the_line_is_refused(user, conn):
 
 
 async def test_discount_and_tax_are_saved_and_shown_again(user, conn):
-    quote = Quote(
+    quote = make_quote(
         line_items=[
             LineItem("Hedge trimmer blade", Decimal(1), 1899, tax_percent=Decimal("7.25"), discount_cents=200),
             LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10")),
@@ -387,14 +401,14 @@ async def test_discount_and_tax_are_saved_and_shown_again(user, conn):
 
 async def test_list_shows_each_quotes_total(user, conn):
     saved = save_new_quote(
-        conn, Quote(line_items=[LineItem("Mow lawn", Decimal(2), 4500, discount_cents=500)])
+        conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(2), 4500, discount_cents=500)])
     )
     await reload(user)
     assert text(user.find(marker=f"list-total-{saved.number}")) == "$85.00"
 
 
 async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
-    quote = Quote(
+    quote = make_quote(
         line_items=[
             LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10"), tax_percent=Decimal("7.25")),
         ],
@@ -411,7 +425,7 @@ DISCARD_QUESTION = "Discard unsaved changes?"
 
 
 async def test_unchanged_form_leaves_without_asking(user, conn):
-    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    saved = save_new_quote(conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
     await user.should_see(f"{saved.number} (Draft)")
@@ -453,8 +467,8 @@ async def test_keep_editing_keeps_the_changes(user):
 
 
 async def test_discard_opens_the_other_quote(user, conn):
-    first = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
-    second = save_new_quote(conn, Quote(line_items=[LineItem("Clean gutters", Decimal(1), 8500)]))
+    first = save_new_quote(conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    second = save_new_quote(conn, make_quote(line_items=[LineItem("Clean gutters", Decimal(1), 8500)]))
     await reload(user)
     user.find(marker=f"quote-{first.number}").click()
     await user.should_see(f"{first.number} (Draft)")
@@ -469,7 +483,7 @@ async def test_discard_opens_the_other_quote(user, conn):
 
 
 async def test_clicking_the_open_quote_keeps_the_changes(user, conn):
-    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    saved = save_new_quote(conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
     await user.should_see(f"{saved.number} (Draft)")
@@ -505,7 +519,7 @@ async def test_mark_a_new_quote_quoted(user, conn):
 
 
 async def test_marking_quoted_saves_the_forms_changes(user, conn):
-    saved = save_new_quote(conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
+    saved = save_new_quote(conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)]))
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
     await user.should_see(f"{saved.number} (Draft)")
@@ -599,7 +613,7 @@ async def test_quote_with_no_lines_cant_be_quoted(user, conn):
 
 def quoted(conn, valid_until=VALID_UNTIL):
     """A quoted quote, issued 9/1/2026, valid through `valid_until`."""
-    quote = Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
+    quote = make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
     return mark_quoted(conn, quote, date(2026, 9, 1), valid_until)
 
 
@@ -947,7 +961,7 @@ async def search_for(user, term):
 
 async def test_search_highlights_the_first_line(user, conn):
     saved = save_new_quote(
-        conn, Quote(line_items=[LineItem("Trim hedges", Decimal(1), 3000)])
+        conn, make_quote(line_items=[LineItem("Trim hedges", Decimal(1), 3000)])
     )
     await reload(user)
     await search_for(user, "HEDGES")
@@ -959,7 +973,7 @@ async def test_search_highlights_the_first_line(user, conn):
 async def test_search_shows_a_match_the_row_hides(user, conn):
     saved = save_new_quote(
         conn,
-        Quote(
+        make_quote(
             notes="Back hedges too.",
             line_items=[LineItem("Mow lawn", Decimal(1), 4500)],
         ),
@@ -976,7 +990,7 @@ async def test_search_shows_a_match_the_row_hides(user, conn):
 
 async def test_search_highlights_the_number(user, conn):
     saved = save_new_quote(
-        conn, Quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
+        conn, make_quote(line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
     )
     await reload(user)
     await search_for(user, saved.number[2:5].lower())
@@ -987,7 +1001,7 @@ async def test_search_highlights_the_number(user, conn):
 
 async def test_typed_html_shows_as_typed(user, conn):
     saved = save_new_quote(
-        conn, Quote(line_items=[LineItem("<b>Deck</b> wash", Decimal(1), 4500)])
+        conn, make_quote(line_items=[LineItem("<b>Deck</b> wash", Decimal(1), 4500)])
     )
     await reload(user)
     await search_for(user, "deck")
@@ -1006,7 +1020,7 @@ def view_html(user, marker):
 async def test_open_quote_highlights_the_search(user, conn):
     saved = mark_quoted(
         conn,
-        Quote(
+        make_quote(
             notes="Back hedges too.",
             line_items=[LineItem("Trim hedges", Decimal(1), 3000)],
         ),
@@ -1054,7 +1068,7 @@ def tinted(user, marker):
 async def test_draft_tints_fields_holding_the_search(user, conn):
     saved = save_new_quote(
         conn,
-        Quote(
+        make_quote(
             notes="Back hedges too.",
             line_items=[
                 LineItem("Mow lawn", Decimal(1), 4500),
@@ -1090,15 +1104,21 @@ async def test_draft_tints_follow_the_search_and_typing(user, conn):
 
 
 async def test_no_highlighting_without_a_search(user, conn):
-    save_new_quote(conn, Quote(notes="Back hedges too."))
+    save_new_quote(conn, make_quote(notes="Back hedges too."))
     await reload(user)
     await user.should_see("No lines")
     await user.should_not_see(kind=ui.html)
 
 
 async def open_settings(user):
+    """Open Settings, on the business whose quotes were shown."""
     user.find(marker="settings").click()
-    await eventually(lambda: heading(user) == "Settings")
+    await user.should_see(marker="business-name")
+
+
+async def back_to_quotes(user):
+    user.find(marker="back-to-quotes").click()
+    await user.should_see("New Quote")
 
 
 async def test_settings_start_at_30_days_and_extend_unset(user):
@@ -1136,7 +1156,7 @@ async def test_save_settings(user, conn):
 
     await user.should_see("Settings saved")
     assert current_business(conn).valid_days == 14
-    await new_quote(user)  # saved: leaves without asking
+    await back_to_quotes(user)  # saved: leaves without asking
     await user.should_not_see(DISCARD_QUESTION)
 
 
@@ -1175,6 +1195,7 @@ async def test_the_top_left_shows_the_name_once_given(user, conn):
 
     await user.should_see("Settings saved")
     assert current_business(conn).name == "John Doe's Lawn Service"
+    await back_to_quotes(user)
     await eventually(lambda: title(user) == "John Doe's Lawn Service")
     assert not is_italic(user)
 
@@ -1188,6 +1209,7 @@ async def test_a_pilots_name_is_in_italics(user, conn):
 
     await user.should_see("Settings saved")
     assert current_business(conn).pilot is True
+    await back_to_quotes(user)
     await eventually(lambda: title(user) == "Pressure washing")
     assert is_italic(user)
 
@@ -1219,7 +1241,7 @@ async def test_changing_the_kind_counts_as_a_change(user):
     await open_settings(user)
     [kind] = user.find(marker="business-kind").elements
     kind.value = "pilot"
-    user.find("New Quote").click()
+    user.find(marker="back-to-quotes").click()
 
     await user.should_see(DISCARD_QUESTION)
 
@@ -1227,7 +1249,169 @@ async def test_changing_the_kind_counts_as_a_change(user):
 async def test_leaving_changed_settings_asks(user):
     await open_settings(user)
     user.find(marker="business-valid-days").clear().type("14")
-    user.find("New Quote").click()
+    user.find(marker="back-to-quotes").click()
 
     await user.should_see(DISCARD_QUESTION)
     await user.should_see("Changes to the settings haven't been saved.")
+
+
+async def test_settings_take_over_the_side_panel(user):
+    user.find(marker="search").type("hedges")
+    await open_settings(user)
+    await user.should_not_see("New Quote")
+    await user.should_not_see(marker="search")
+    await user.should_not_see(marker="title")  # no name or dropdown
+    await user.should_see("Add business or pilot…")
+
+    await back_to_quotes(user)
+    await user.should_not_see("Back to Quotes")
+    assert value(user.find(marker="search")) == "hedges"  # kept while away
+
+
+async def test_settings_name_an_unnamed_business_for_now(user):
+    await open_settings(user)
+    assert heading(user) == "Unnamed business"
+    await user.should_see(marker=f"business-{BUSINESS}")
+
+
+def businesses(conn, *named):
+    """Add businesses: a name, or ("Pressure washing", "pilot"). Returns
+    them in the order given, with their ids."""
+    added = []
+    for entry in named:
+        name, pilot = (entry, False) if isinstance(entry, str) else (entry[0], True)
+        added.append(add_business(conn, Business(name=name, pilot=pilot)))
+    return added
+
+
+def settings_list(user):
+    """The ids of the businesses Settings lists, top to bottom."""
+    items = user.find(kind=ui.item).elements
+    markers = [m for item in sorted(items, key=lambda e: e.id) for m in item._markers]
+    return [int(m.removeprefix("business-")) for m in markers if m.startswith("business-")]
+
+
+async def test_settings_list_businesses_then_pilots_by_name(user, conn):
+    save_business(conn, replace(current_business(conn), name="lawn care"))
+    gifts, deck, acme = businesses(conn, ("Gift baskets", "pilot"), ("decks", "pilot"), "Acme")
+    await open_settings(user)
+    assert settings_list(user) == [acme.id, BUSINESS, deck.id, gifts.id]
+
+
+async def test_add_a_business(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    await open_settings(user)
+    user.find(marker="add-business").click()
+    await eventually(lambda: heading(user) == "New business or pilot")
+    [kind] = user.find(marker="business-kind").elements
+    kind.value = "pilot"
+    user.find(marker="business-name").type("Pressure washing")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Settings saved")
+    [_, added] = list_businesses(conn)
+    assert (added.name, added.pilot) == ("Pressure washing", True)
+    await eventually(lambda: heading(user) == "Pressure washing")
+    await user.should_see(marker=f"business-{added.id}")
+    assert current_business(conn).id == BUSINESS  # still Joe's quotes
+
+
+async def test_a_new_business_needs_a_name(user, conn):
+    await open_settings(user)
+    user.find(marker="add-business").click()
+    await eventually(lambda: heading(user) == "New business or pilot")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see(NAME_NEEDED)
+    assert len(list_businesses(conn)) == 1
+
+
+NAME_NEEDED = "Name: a name is needed once there's more than one business or pilot"
+
+
+async def test_a_name_cant_be_cleared_once_there_are_two(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    businesses(conn, "Acme")
+    await open_settings(user)
+    user.find(marker="business-name").clear()
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see(NAME_NEEDED)
+    assert current_business(conn).name == "Joe's Lawn Service"
+
+
+async def test_settings_open_another_business(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    [acme] = businesses(conn, "Acme")
+    await open_settings(user)
+    user.find(marker=f"business-{acme.id}").click()
+
+    await eventually(lambda: heading(user) == "Acme")
+    assert current_business(conn).id == BUSINESS  # only its settings opened
+
+
+async def test_opening_another_business_with_changes_asks(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    [acme] = businesses(conn, "Acme")
+    await open_settings(user)
+    user.find(marker="business-valid-days").clear().type("14")
+    user.find(marker=f"business-{acme.id}").click()
+
+    await user.should_see(DISCARD_QUESTION)
+
+
+async def test_one_business_has_no_dropdown(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    await reload(user)
+    await user.should_not_see(kind=ui.dropdown_button)
+
+
+async def test_the_dropdown_switches_business(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    [washing] = businesses(conn, ("Pressure washing", "pilot"))
+    lawn = save_new_quote(conn, make_quote(notes="Mow"))
+    deck = save_new_quote(conn, replace(make_quote(notes="Deck"), business_id=washing.id))
+    await reload(user)
+    assert title(user) == "Joe's Lawn Service"
+    assert list_order(user) == [lawn.number]
+
+    user.find(marker=f"pick-{washing.id}").click()
+    await eventually(lambda: title(user) == "Pressure washing")
+    assert is_italic(user)
+    await eventually(lambda: list_order(user) == [deck.number])
+    assert current_business(conn).id == washing.id  # opened on next time
+
+
+async def test_switching_business_with_changes_asks(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    [acme] = businesses(conn, "Acme")
+    await reload(user)
+    await new_quote(user)
+    user.find(marker="description-1").type("Mow lawn")
+    user.find(marker=f"pick-{acme.id}").click()
+
+    await user.should_see(DISCARD_QUESTION)
+    assert current_business(conn).id == BUSINESS
+
+
+async def test_a_new_quote_belongs_to_the_business_shown(user, conn):
+    save_business(conn, replace(current_business(conn), name="Joe's Lawn Service"))
+    [acme] = businesses(conn, "Acme")
+    pick_business(conn, acme.id)
+    await reload(user)
+    await new_quote(user)
+    fill_line(user, 1, "Paint fence", "1", "300")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Saved")
+    [summary] = list_quotes(conn, acme.id)
+    assert load_quote(conn, summary.number).business_id == acme.id
+    assert list_quotes(conn, BUSINESS) == []
+
+
+async def test_search_covers_only_the_business_shown(user, conn):
+    [acme] = businesses(conn, "Acme")
+    save_new_quote(conn, replace(make_quote(notes="Hedges"), business_id=acme.id))
+    await reload(user)
+    user.find(marker="search").type("hedges")
+    await user.should_see("No quotes found")

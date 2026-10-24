@@ -58,9 +58,22 @@ def connect(path: Path | str) -> sqlite3.Connection:
     return conn
 
 
+class NameNeeded(Exception):
+    """A business was left without a name while there's more than one."""
+
+
+_BUSINESS_COLUMNS = "id, name, pilot, valid_days, extend_days"
+
+
+def _business(row: sqlite3.Row) -> Business:
+    # The columns are named as its fields; pilot is stored as 0 or 1.
+    return Business(**{**dict(row), "pilot": bool(row["pilot"])})
+
+
 def current_business(conn: sqlite3.Connection) -> Business:
-    """The business the app shows: for now the only one, made with the
-    default settings the first time it's asked for."""
+    """The business the app shows: the one picked last, or the first
+    made. One is made, with the default settings, the first time it's
+    asked for."""
     with conn:
         # INSERT ... SELECT inserts a row only where the SELECT finds one;
         # a NULL id is given the next free one.
@@ -70,30 +83,85 @@ def current_business(conn: sqlite3.Connection) -> Business:
             SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM businesses)
             """
         )
+        # The picked one first (true sorts after false, hence DESC); with
+        # none picked, id = NULL is NULL for every row, so the first made.
         row = conn.execute(
-            """
-            SELECT id, name, pilot, valid_days, extend_days
+            f"""
+            SELECT {_BUSINESS_COLUMNS}
             FROM businesses
-            ORDER BY id
+            ORDER BY id = (SELECT business_id FROM app_state) DESC, id
             LIMIT 1
             """
         ).fetchone()
-    # The columns are named as its fields; pilot is stored as 0 or 1.
-    return Business(**{**dict(row), "pilot": bool(row["pilot"])})
+    return _business(row)
+
+
+def list_businesses(conn: sqlite3.Connection) -> list[Business]:
+    """Every business, then every pilot, each by name in any case."""
+    rows = conn.execute(
+        f"""
+        SELECT {_BUSINESS_COLUMNS}
+        FROM businesses
+        ORDER BY pilot, name COLLATE NOCASE, id
+        """
+    ).fetchall()
+    return [_business(row) for row in rows]
+
+
+def pick_business(conn: sqlite3.Connection, business_id: int) -> None:
+    """Make this the business the app shows, now and at the next start."""
+    with conn:
+        # An upsert: insert the one row, or change it if it's there.
+        conn.execute(
+            """
+            INSERT INTO app_state (id, business_id) VALUES (1, ?)
+            ON CONFLICT (id) DO UPDATE SET business_id = excluded.business_id
+            """,
+            (business_id,),
+        )
+
+
+def add_business(conn: sqlite3.Connection, business: Business) -> Business:
+    """Store a new business; returns a copy with its id.
+
+    Raises NameNeeded without a name: with it there's more than one.
+    """
+    if not business.name:
+        raise NameNeeded
+    with conn:
+        row = conn.execute(
+            """
+            INSERT INTO businesses (name, pilot, valid_days, extend_days)
+            VALUES (:name, :pilot, :valid_days, :extend_days)
+            RETURNING id
+            """,
+            vars(business),
+        ).fetchone()
+    return replace(business, id=row["id"])
 
 
 def save_business(conn: sqlite3.Connection, business: Business) -> None:
-    """Save changes to a business already stored."""
+    """Save changes to a business already stored.
+
+    Raises NameNeeded if it's left without a name while there's more
+    than one.
+    """
     with conn:
-        conn.execute(
+        # The check is in the WHERE clause, so checking and changing are
+        # one step.
+        row = conn.execute(
             """
             UPDATE businesses
             SET name = :name, pilot = :pilot, valid_days = :valid_days,
                 extend_days = :extend_days
             WHERE id = :id
+              AND (:name != '' OR (SELECT count(*) FROM businesses) = 1)
+            RETURNING id
             """,
             vars(business),
-        )
+        ).fetchone()
+    if row is None:
+        raise NameNeeded
 
 
 def save_new_quote(
@@ -117,12 +185,13 @@ def save_new_quote(
             row = conn.execute(
                 """
                 INSERT INTO quotes
-                    (number, revision, status, issued_on, valid_until, notes,
-                     updated_at, frozen_items_cents, frozen_discount_cents,
-                     frozen_tax_cents, frozen_total_cents)
-                VALUES (:number, :revision, :status, :issued_on, :valid_until,
-                        :notes, :updated_at, :items_cents, :discount_cents,
-                        :tax_cents, :total_cents)
+                    (business_id, number, revision, status, issued_on,
+                     valid_until, notes, updated_at, frozen_items_cents,
+                     frozen_discount_cents, frozen_tax_cents,
+                     frozen_total_cents)
+                VALUES (:business_id, :number, :revision, :status, :issued_on,
+                        :valid_until, :notes, :updated_at, :items_cents,
+                        :discount_cents, :tax_cents, :total_cents)
                 ON CONFLICT (number, revision) DO NOTHING
                 RETURNING id
                 """,
@@ -210,12 +279,12 @@ def _insert_revision(
     row = conn.execute(
         """
         INSERT INTO quotes
-            (number, revision, status, issued_on, valid_until, notes,
-             updated_at, frozen_items_cents, frozen_discount_cents,
+            (business_id, number, revision, status, issued_on, valid_until,
+             notes, updated_at, frozen_items_cents, frozen_discount_cents,
              frozen_tax_cents, frozen_total_cents)
-        VALUES (:number, :revision, :status, :issued_on, :valid_until,
-                :notes, :updated_at, :items_cents, :discount_cents,
-                :tax_cents, :total_cents)
+        VALUES (:business_id, :number, :revision, :status, :issued_on,
+                :valid_until, :notes, :updated_at, :items_cents,
+                :discount_cents, :tax_cents, :total_cents)
         RETURNING id
         """,
         _quote_values(quote, quote.number, _timestamp(now)),
@@ -333,6 +402,7 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
     """The quote's columns, by name, for INSERT and UPDATE."""
     frozen = quote.frozen
     return {
+        "business_id": quote.business_id,
         "number": number,
         "revision": quote.revision,
         "status": quote.status,
@@ -347,9 +417,11 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
     }
 
 
-def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary]:
-    """Each quote's newest version, last changed first, matching `search`
-    if given.
+def list_quotes(
+    conn: sqlite3.Connection, business_id: int, search: str = ""
+) -> list[QuoteSummary]:
+    """Each of a business's quotes' newest version, last changed first,
+    matching `search` if given.
 
     A quote matches if any version's number, notes, or line description
     holds the search text, in any case.
@@ -365,7 +437,8 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
         rf"""
         SELECT {_SUMMARY_COLUMNS}
         FROM quotes AS q
-        WHERE q.revision = (SELECT max(revision) FROM quotes
+        WHERE q.business_id = :business_id
+          AND q.revision = (SELECT max(revision) FROM quotes
                             WHERE number = q.number)
           AND EXISTS (
               SELECT 1 FROM quotes AS v
@@ -377,7 +450,7 @@ def list_quotes(conn: sqlite3.Connection, search: str = "") -> list[QuoteSummary
                                   AND description LIKE :pattern ESCAPE '\')))
         ORDER BY q.updated_at DESC, q.id DESC
         """,
-        {"pattern": pattern},
+        {"business_id": business_id, "pattern": pattern},
     ).fetchall()
     return _summaries(conn, rows)
 
@@ -498,9 +571,9 @@ def load_quote(
     None), or None if there's none."""
     row = conn.execute(
         """
-        SELECT id, number, revision, status, issued_on, valid_until, notes,
-               frozen_items_cents, frozen_discount_cents, frozen_tax_cents,
-               frozen_total_cents
+        SELECT id, business_id, number, revision, status, issued_on,
+               valid_until, notes, frozen_items_cents, frozen_discount_cents,
+               frozen_tax_cents, frozen_total_cents
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -512,6 +585,7 @@ def load_quote(
     if row is None:
         return None
     return Quote(
+        business_id=row["business_id"],
         number=row["number"],
         revision=row["revision"],
         status=Status(row["status"]),

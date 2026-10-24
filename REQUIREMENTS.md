@@ -48,7 +48,9 @@ Future (not now):
   beside the heading, or From and To boxes under it (a single line
   of details was ruled out).
 - A banner image at the top left instead of the business's name.
-- A simple dashboard (quote counts, extensions, and the like).
+- A simple dashboard (quote counts, extensions, and the like): counts
+  per business or pilot and in all, drafts, and metrics around
+  extensions (noted 2026-10-24).
 - A time of day on the valid-through date, such as the end of office
   hours: "Valid through 11/18/2026 6:30 pm EST" (decided 2026-10-19).
   The zone label would follow the date (EST in winter, EDT in summer,
@@ -232,12 +234,12 @@ Built (as of 2026-10-24), each with tests:
 - Quote numbers (quote_numbers.py).
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
   line items, saving changes to a draft (lines replaced), loading one
-  back, and listing quotes with search. A business and its settings
-  (business.py): one so far, made on first start, holding whether
-  it's a pilot, its name, days valid, and Extend's days so far. The
-  table is shaped for several businesses ahead of time (agreed
-  2026-10-20): they're certain to come, and moving settings into it
-  later would be work undone.
+  back, and listing a business's quotes with search. Businesses and
+  their settings (business.py): one made on first start, more added
+  from Settings, each holding whether it's a pilot, its name, days
+  valid, and Extend's days so far. Every quote belongs to one, and
+  every version of it to the same one. The business picked last is
+  remembered (decided 2026-10-24), so the app opens on it.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -251,22 +253,42 @@ Built (as of 2026-10-24), each with tests:
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
     you type, matches the number, the notes, or any line's description,
-    in any case, in any version (decided 2026-10-19). The list
-    scrolls on its own, below Search and New Quote.
-  - Settings (decided 2026-10-20): at the bottom of the side panel,
-    below a divider, a Settings button opens the business's settings
-    on the right, with Save. First, Business or Pilot (Business to
-    start) and Name (decided 2026-10-24), whose example follows the
+    in any case, in any version (decided 2026-10-19). The list and
+    search cover only the business shown (decided 2026-10-20), and a
+    new quote belongs to it. The list scrolls on its own, below Search
+    and New Quote.
+  - Settings (decided 2026-10-20; reworked 2026-10-24): at the bottom
+    of the side panel, below a divider, a Settings button. Settings
+    takes over the side panel, in place of the name, Search, and the
+    quotes (hidden, not cleared: the search is still there on
+    return): "Settings", then the businesses and pilots, each with
+    its kind ("Business", "Pilot") under its name, businesses first,
+    then pilots, each by name in any case; "Add business or pilot…"
+    below them; and at the bottom, where Settings was, "Back to
+    Quotes", so one spot opens and closes it. No quote counts: those
+    belong in a dashboard (see Future). Settings opens on the
+    business shown; clicking another in the list opens its settings
+    on the right, not its quotes. Add opens a blank form, headed "New
+    business or pilot". The right side holds the form, headed by the
+    business's name ("Unnamed business", or "Unnamed pilot", for a
+    lone one without), with Save. First, Business or Pilot (Business
+    to start) and Name (decided 2026-10-24), whose example follows the
     choice: "John Doe's Lawn Service", or "Pressure washing" with the
     note "An activity name works well. Pilots show in italics in the
-    list." Then "Quotes valid for (days)", which Mark Quoted's
-    valid-through starts from, and "Extend by (days)", blank to start,
-    which picks Extend's first choice. Each is a whole number above 0;
-    a message names the field that isn't. Leaving it with unsaved
-    changes asks first, as a quote's form does.
+    list." A name is needed once there's more than one: "Name: a name
+    is needed once there's more than one business or pilot". Then
+    "Quotes valid for (days)", which Mark Quoted's valid-through
+    starts from, and "Extend by (days)", blank to start, which picks
+    Extend's first choice. Each is a whole number above 0; a message
+    names the field that isn't. Leaving the form with unsaved changes
+    (another business, Add, or Back to Quotes) asks first, as a
+    quote's form does.
   - The top left (decided 2026-10-24) shows "Quote Builder" until the
-    business has a name, then the name, in italics for a pilot. The
-    window's title stays "Quote Builder".
+    business has a name, then the name, in italics for a pilot. Once
+    there's a second, it's a dropdown of all the names, in the same
+    order as Settings, with a line between the businesses and the
+    pilots; picking one shows its quotes (asking first, with unsaved
+    changes). The window's title stays "Quote Builder".
   - Search matches are highlighted (decided 2026-10-19), in a soft
     amber, in the row's number and first line. A match the row doesn't
     show (notes, a later line, an older version) adds a small italic
@@ -355,15 +377,7 @@ Built (as of 2026-10-24), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. More than one business (planned 2026-10-20; reworked 2026-10-24):
-   quotes belong to a business or pilot, and the app shows one at a
-   time (list and search cover only its quotes). Settings lists them,
-   each with its name and whether it's a business or a pilot, with
-   "Add business or pilot…" below. Once there's a second, the top
-   left becomes a dropdown of their names only (pilots in italics);
-   picking one shows its quotes. A name is needed once there's more
-   than one, so no row is blank.
-2. Tax rates (and the business's default), clients, then the
+1. Tax rates (and the business's default), clients, then the
    catalog.
 
 Business details and terms wait for printing (decided 2026-10-24):

@@ -77,6 +77,7 @@ class Extension:
 
 @dataclass
 class Quote:
+    business_id: int | None = None  # whose quote it is; needed to save
     number: str | None = None  # None until first saved
     revision: int = 0
     status: Status = Status.DRAFT
@@ -120,6 +121,7 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
     quoted version was given: dates, frozen figures, extensions.
     """
     return Quote(
+        business_id=quote.business_id,
         number=quote.number,
         revision=revision,
         notes=quote.notes,
