@@ -33,6 +33,10 @@ of one: a second copy drifts, and can mask a problem in this file.
   (deleting a database after a schema change, say) goes first in the
   summary, as a command: the user often starts the app before
   reading the rest, and would otherwise meet an error first.
+- Screenshots in the chat are full size or close to it (a 0.6
+  scale reads fine; 0.2 is too small to see when opened): the user
+  reads them. To find where to click, use `find`/`read_page` rather
+  than a tiny screenshot.
 
 ### Commits and pushes
 
