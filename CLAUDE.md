@@ -29,6 +29,10 @@ of one: a second copy drifts, and can mask a problem in this file.
   options, previews, and trade-offs Claude offers, rather than Claude
   deciding design questions for them. Hands-off doesn't mean assume:
   ask early, before building much, whenever unsure about anything.
+- When handing over a step, anything to do before running the app
+  (deleting a database after a schema change, say) goes first in the
+  summary, as a command: the user often starts the app before
+  reading the rest, and would otherwise meet an error first.
 
 ### Commits and pushes
 
