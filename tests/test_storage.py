@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from quote_builder.business import Business
+from quote_builder.business import Business, TaxPart, TaxRate
 from quote_builder.quotes import (
     Extension,
     LineItem,
@@ -26,10 +26,12 @@ from quote_builder.storage import (
     add_business,
     connect,
     current_business,
+    delete_tax_rate,
     expire_overdue,
     extend_quote,
     list_businesses,
     list_quotes,
+    list_tax_rates,
     list_versions,
     load_quote,
     mark_quoted,
@@ -38,6 +40,7 @@ from quote_builder.storage import (
     save_draft,
     save_new_quote,
     save_revision,
+    save_tax_rate,
     search_texts,
 )
 
@@ -666,6 +669,70 @@ def test_list_quotes_only_of_the_business(conn):
     assert [s.number for s in list_quotes(conn, BUSINESS)] == ["Q-111-1111"]
     assert [s.number for s in list_quotes(conn, acme.id, "theirs")] == ["Q-222-2222"]
     assert list_quotes(conn, BUSINESS, "theirs") == []
+
+
+def home_county(**changes):
+    rate = TaxRate(
+        BUSINESS,
+        "Home county",
+        [TaxPart("State", Decimal("4.75")), TaxPart("County", Decimal("1.5"))],
+    )
+    return replace(rate, **changes)
+
+
+def test_saved_tax_rate_loads_the_same(conn):
+    saved = save_tax_rate(conn, home_county(is_default=True))
+    assert saved.id is not None
+    assert list_tax_rates(conn, BUSINESS) == [saved]
+
+
+def test_tax_rates_list_by_name_in_any_case(conn):
+    save_tax_rate(conn, home_county(name="out of town"))
+    save_tax_rate(conn, home_county(name="Home county"))
+    names = [r.name for r in list_tax_rates(conn, BUSINESS)]
+    assert names == ["Home county", "out of town"]
+
+
+def test_tax_rates_are_the_businesss_own(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    save_tax_rate(conn, home_county())
+    assert list_tax_rates(conn, acme.id) == []
+
+
+def test_changing_a_tax_rate_replaces_its_parts(conn):
+    saved = save_tax_rate(conn, home_county())
+    changed = replace(saved, name="Home", parts=[TaxPart("", Decimal("7"))])
+    save_tax_rate(conn, changed)
+    assert list_tax_rates(conn, BUSINESS) == [changed]
+
+
+def test_a_new_default_takes_over(conn):
+    old = save_tax_rate(conn, home_county(is_default=True))
+    new = save_tax_rate(conn, home_county(name="Lake county", is_default=True))
+    defaults = [r.id for r in list_tax_rates(conn, BUSINESS) if r.is_default]
+    assert defaults == [new.id]
+    save_tax_rate(conn, old)  # saved again as the default
+    defaults = [r.id for r in list_tax_rates(conn, BUSINESS) if r.is_default]
+    assert defaults == [old.id]
+
+
+def test_each_business_has_its_own_default(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    save_tax_rate(conn, home_county(is_default=True))
+    save_tax_rate(conn, home_county(business_id=acme.id, is_default=True))
+    assert list_tax_rates(conn, BUSINESS)[0].is_default
+
+
+def test_delete_a_tax_rate_and_its_parts(conn):
+    saved = save_tax_rate(conn, home_county())
+    delete_tax_rate(conn, saved.id)
+    assert list_tax_rates(conn, BUSINESS) == []
+    assert conn.execute("SELECT count(*) FROM tax_rate_parts").fetchone()[0] == 0
+
+
+def test_a_tax_rate_needs_a_name_in_the_database(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        save_tax_rate(conn, home_county(name=""))
 
 
 def test_a_quote_needs_a_business(conn):

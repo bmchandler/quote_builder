@@ -11,7 +11,7 @@ from nicegui import ui
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
-from quote_builder.business import Business
+from quote_builder.business import Business, TaxPart, TaxRate
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
     add_business,
@@ -19,12 +19,14 @@ from quote_builder.storage import (
     current_business,
     list_businesses,
     list_quotes,
+    list_tax_rates,
     load_quote,
     mark_quoted,
     pick_business,
     save_business,
     save_new_quote,
     save_revision,
+    save_tax_rate,
 )
 
 
@@ -1415,3 +1417,169 @@ async def test_search_covers_only_the_business_shown(user, conn):
     await reload(user)
     user.find(marker="search").type("hedges")
     await user.should_see("No quotes found")
+
+
+async def add_tax_rate(user):
+    user.find(marker="add-tax-rate").click()
+    # Not should_see("Add tax rate"): the button's label holds it too.
+    await user.should_see(marker="tax-rate-name")
+
+
+def home_county(conn, **changes):
+    rate = TaxRate(
+        BUSINESS,
+        "Home county",
+        [TaxPart("State", Decimal("4.75")), TaxPart("County", Decimal("1.5"))],
+    )
+    return save_tax_rate(conn, replace(rate, **changes))
+
+
+async def test_add_a_tax_rate(user, conn):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="tax-rate-name").type("Home county")
+    user.find(marker="part-name-1").type("State")
+    user.find(marker="part-percent-1").type("4.75")
+    user.find(marker="add-part").click()
+    user.find(marker="part-name-2").type("County")
+    user.find(marker="part-percent-2").type("1.5%")
+    await eventually(lambda: text(user.find(marker="combined")) == "Combined: 6.25%")
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("Saved Home county")
+    [rate] = list_tax_rates(conn, BUSINESS)
+    assert rate.parts == [
+        TaxPart("State", Decimal("4.75")),
+        TaxPart("County", Decimal("1.5")),
+    ]
+    assert rate.is_default  # the first one is, to start
+    await user.should_see("Home county · 6.25% · Default")
+
+
+async def test_a_parts_example_names_the_kinds(user):
+    await open_settings(user)
+    await add_tax_rate(user)
+    [part] = user.find(marker="part-name-1").elements
+    assert part.props["placeholder"] == "State, County, or City, etc."
+
+
+async def test_combined_waits_for_every_part_to_read(user):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="part-percent-1").type("lots")
+    await eventually(lambda: text(user.find(marker="combined")) == "Combined: —")
+
+
+async def test_a_tax_rate_says_what_doesnt_read(user, conn):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="tax-rate-name").type("Home county")
+    user.find(marker="part-percent-1").type("lots")
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("Part 1: 'lots' isn't a percent")
+    assert list_tax_rates(conn, BUSINESS) == []
+
+
+async def test_a_tax_rate_needs_a_name(user, conn):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="part-percent-1").type("7")
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("A tax rate needs a name")
+    assert list_tax_rates(conn, BUSINESS) == []
+
+
+async def test_a_tax_rate_needs_a_part(user, conn):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="tax-rate-name").type("Home county")
+    user.find(marker="remove-part-1").click()
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("A tax rate needs at least one part")
+
+
+async def test_edit_a_tax_rate(user, conn):
+    rate = home_county(conn)
+    await open_settings(user)
+    user.find(marker=f"tax-rate-{rate.id}").click()
+    await user.should_see("Edit tax rate")
+    assert value(user.find(marker="part-percent-2")) == "1.5"
+    user.find(marker="part-percent-2").clear().type("2")
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("Home county · 6.75%")
+    [changed] = list_tax_rates(conn, BUSINESS)
+    assert changed.parts[1] == TaxPart("County", Decimal("2"))
+
+
+async def test_a_second_rate_isnt_the_default_to_start(user, conn):
+    home_county(conn, is_default=True)
+    await open_settings(user)
+    await add_tax_rate(user)
+    [default] = user.find(marker="tax-rate-default").elements
+    assert default.value is False
+
+
+async def test_make_another_rate_the_default(user, conn):
+    home = home_county(conn, is_default=True)
+    lake = home_county(conn, name="Lake county")
+    await open_settings(user)
+    user.find(marker=f"tax-rate-{lake.id}").click()
+    await user.should_see("Edit tax rate")
+    [default] = user.find(marker="tax-rate-default").elements
+    default.value = True
+    user.find(marker="save-tax-rate").click()
+
+    await user.should_see("Lake county · 6.25% · Default")
+    await user.should_see("Home county · 6.25%")
+    assert [r.id for r in list_tax_rates(conn, BUSINESS) if r.is_default] == [lake.id]
+    assert home.id != lake.id
+
+
+async def test_delete_a_tax_rate(user, conn):
+    rate = home_county(conn)
+    await open_settings(user)
+    user.find(marker=f"tax-rate-{rate.id}").click()
+    await user.should_see("Edit tax rate")
+    user.find(marker="delete-tax-rate").click()
+
+    await user.should_see("Deleted Home county")
+    await user.should_not_see(marker=f"tax-rate-{rate.id}")
+    assert list_tax_rates(conn, BUSINESS) == []
+
+
+async def test_a_new_rate_cant_be_deleted(user):
+    await open_settings(user)
+    await add_tax_rate(user)
+    await user.should_not_see(marker="delete-tax-rate")
+
+
+async def test_cancel_leaves_tax_rates_alone(user, conn):
+    await open_settings(user)
+    await add_tax_rate(user)
+    user.find(marker="tax-rate-name").type("Home county")
+    user.find(kind=ui.button, content="Cancel").click()
+
+    await user.should_not_see(marker="tax-rate-name")
+    assert list_tax_rates(conn, BUSINESS) == []
+
+
+async def test_tax_rates_follow_the_business_shown(user, conn):
+    home_county(conn)
+    [acme] = businesses(conn, "Acme")
+    await open_settings(user)
+    await user.should_see("Home county · 6.25%")
+    user.find(marker=f"business-{acme.id}").click()
+
+    await eventually(lambda: heading(user) == "Acme")
+    await user.should_not_see("Home county · 6.25%")
+
+
+async def test_a_new_business_gets_tax_rates_once_saved(user):
+    await open_settings(user)
+    user.find(marker="add-business").click()
+    await eventually(lambda: heading(user) == "New business or pilot")
+    await user.should_not_see(marker="add-tax-rate")

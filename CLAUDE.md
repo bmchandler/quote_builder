@@ -174,7 +174,8 @@ of one: a second copy drifts, and can mask a problem in this file.
 
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
   `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`),
-  business.py (`Business`: a business's settings), money.py
+  business.py (`Business`: a business's settings; `TaxRate`,
+  `TaxPart`), money.py
   and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
   search.py (search matches: escaped HTML with `<mark>`, excerpts),

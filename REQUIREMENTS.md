@@ -237,7 +237,8 @@ Built (as of 2026-10-24), each with tests:
   back, and listing a business's quotes with search. Businesses and
   their settings (business.py): one made on first start, more added
   from Settings, each holding whether it's a pilot, its name, days
-  valid, and Extend's days so far. Every quote belongs to one, and
+  valid, Extend's days, and tax rates (each its parts, one the
+  default) so far. Every quote belongs to one, and
   every version of it to the same one. The business picked last is
   remembered (decided 2026-10-24), so the app opens on it.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
@@ -283,6 +284,20 @@ Built (as of 2026-10-24), each with tests:
     names the field that isn't. Leaving the form with unsaved changes
     (another business, Add, or Back to Quotes) asks first, as a
     quote's form does.
+  - Tax rates (decided 2026-10-24): below a business's settings, under
+    "Tax rates", one row per rate ("Home county · 7.25% · Default"),
+    by name in any case, and "Add tax rate…". A saved business only:
+    a new one gets them once saved. Adding or clicking one opens a
+    dialog: Name, its parts (each a Part, its example "State, County,
+    or City, etc.", which may be blank, and a
+    Percent, as Tax % takes it; "Add part", and an × to remove one),
+    "Combined: 7.25%" as it's typed ("—" until every part reads), and
+    "Default for new quotes", checked to start for a business's first
+    rate. A rate needs a name and a part; a message says which, or
+    which part doesn't read. The dialog saves on its own, apart from
+    the form's Save, so a rate never waits unsaved; a rate already
+    saved has Delete. One default per business: making another the
+    default takes over. Nothing on a quote uses them yet.
   - The top left (decided 2026-10-24) shows "Quote Builder" until the
     business has a name, then the name, in italics for a pilot. Once
     there's a second, it's a dropdown of all the names, in the same
@@ -377,8 +392,11 @@ Built (as of 2026-10-24), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Tax rates (and the business's default), clients, then the
-   catalog.
+1. Tax rates on quotes: a quote takes the business's default rate,
+   changeable (see Data). How a line uses it before the catalog
+   exists: to ask before building. What deleting a rate does once
+   quotes use it: also to settle then.
+2. Clients, then the catalog.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

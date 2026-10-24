@@ -8,11 +8,12 @@ import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import date, datetime
+from decimal import Decimal
 from typing import NamedTuple
 
 from nicegui import ui
 
-from quote_builder.business import Business
+from quote_builder.business import Business, TaxPart, TaxRate, check_tax_rate
 from quote_builder.data_folder import data_folder
 from quote_builder.dates import (
     default_valid_until,
@@ -47,10 +48,12 @@ from quote_builder.storage import (
     add_business,
     connect,
     current_business,
+    delete_tax_rate,
     expire_overdue,
     extend_quote,
     list_businesses,
     list_quotes,
+    list_tax_rates,
     list_versions,
     load_quote,
     mark_quoted,
@@ -59,6 +62,7 @@ from quote_builder.storage import (
     save_draft,
     save_new_quote,
     save_revision,
+    save_tax_rate,
     search_texts,
 )
 from quote_builder.search import HiddenMatch, hidden_match, highlight, matches
@@ -574,6 +578,8 @@ def business_settings(
         on_saved(changed)
 
     ui.button("Save", on_click=save).classes("mt-4")
+    if business.id is not None:  # a new business gets rates once saved
+        tax_rates(conn, business.id)
 
     def form_state() -> tuple:
         return tuple(field.value or "" for field in fields)  # None: cleared
@@ -583,6 +589,164 @@ def business_settings(
     return Editor(
         "the settings", lambda: form_state() != opened_with, lambda term: None
     )
+
+
+def tax_rates(conn: sqlite3.Connection, business_id: int) -> None:
+    """A business's tax rates, below its settings. The dialog that adds
+    or changes one saves it at once, apart from the form's Save."""
+    ui.separator().classes("my-4")
+    ui.label("Tax rates").classes("text-subtitle1 text-weight-medium")
+
+    async def edit(rate: TaxRate) -> None:
+        answer = await ask_tax_rate(rate)
+        if answer is DELETE:
+            delete_tax_rate(conn, rate.id)
+            ui.notify(f"Deleted {rate.name}")
+        elif answer is not None:
+            save_tax_rate(conn, answer)
+            ui.notify(f"Saved {answer.name}")
+        rate_list.refresh()
+
+    @ui.refreshable
+    def rate_list() -> None:
+        rates = list_tax_rates(conn, business_id)
+        if rates:
+            with ui.list().props("separator bordered").classes("w-96 rounded"):
+                for rate in rates:
+                    text = f"{rate.name} · {rate.percent}%"
+                    if rate.is_default:
+                        text += " · Default"
+                    item = ui.item(text, on_click=lambda r=rate: edit(r))
+                    item.props("clickable").mark(f"tax-rate-{rate.id}")
+        # The first rate starts as the default: a business has one rate
+        # more often than not.
+        new = TaxRate(
+            business_id, parts=[TaxPart("", Decimal(0))], is_default=not rates
+        )
+        ui.button(
+            "Add tax rate…", icon="add", on_click=lambda: edit(new)
+        ).props("flat no-caps").mark("add-tax-rate")
+
+    rate_list()
+
+
+DELETE = object()  # ask_tax_rate's answer when Delete is clicked
+
+
+async def ask_tax_rate(rate: TaxRate) -> TaxRate | object | None:
+    """Ask for a tax rate's name and parts: the rate as changed, DELETE,
+    or None if the user cancels. A new one (no id) can't be deleted."""
+    with ui.dialog() as dialog, ui.card().classes("min-w-[28rem]"):
+        ui.label("Add tax rate" if rate.id is None else "Edit tax rate").classes(
+            "text-h6"
+        )
+        # stack-label and greyed, as the business's Name is.
+        name = (
+            ui.input("Name", value=rate.name, placeholder="Home county")
+            .props('stack-label input-class="placeholder:text-gray-400"')
+            .classes("w-full")
+            .mark("tax-rate-name")
+        )
+        parts_column = ui.column().classes("w-full gap-0")
+        parts: list[tuple[ui.row, ui.input, ui.input]] = []  # in order
+        added = 0  # parts ever added, so each gets its own test marker
+
+        def add_part(part: TaxPart) -> None:
+            nonlocal added
+            added += 1
+            with parts_column, ui.row().classes("w-full items-end no-wrap") as row:
+                part_name = (
+                    ui.input(
+                        "Part",
+                        value=part.name,
+                        placeholder="State, County, or City, etc.",
+                    )
+                    .props('stack-label input-class="placeholder:text-gray-400"')
+                    .classes("grow")
+                    .mark(f"part-name-{added}")
+                )
+                percent = (
+                    ui.input(
+                        "Percent",
+                        value=format_percent(part.percent),
+                        placeholder="4.75",
+                        on_change=lambda: show_combined(),
+                    )
+                    .props('stack-label input-class="placeholder:text-gray-400"')
+                    .classes("w-24")
+                    .mark(f"part-percent-{added}")
+                )
+                ui.button(icon="close", on_click=lambda: remove_part(row)).props(
+                    "flat round dense"
+                ).mark(f"remove-part-{added}")
+            parts.append((row, part_name, percent))
+            show_combined()
+
+        def remove_part(row: ui.row) -> None:
+            parts[:] = [p for p in parts if p[0] is not row]
+            parts_column.remove(row)
+            show_combined()
+
+        ui.button(
+            "Add part", icon="add", on_click=lambda: add_part(TaxPart("", Decimal(0)))
+        ).props("flat no-caps dense").mark("add-part")
+        combined = ui.label().mark("combined")
+        default = ui.checkbox("Default for new quotes", value=rate.is_default)
+        default.mark("tax-rate-default")
+
+        def typed_parts() -> list[TaxPart]:
+            """The parts as typed; ValueError names one that doesn't read."""
+            read = []
+            for n, (_, part_name, percent) in enumerate(parts, start=1):
+                try:
+                    read.append(
+                        TaxPart(
+                            (part_name.value or "").strip(),
+                            parse_percent(percent.value or ""),
+                        )
+                    )
+                except ValueError as problem:
+                    raise ValueError(f"Part {n}: {problem}") from None
+            return read
+
+        def show_combined() -> None:
+            try:
+                total = f"{replace(rate, parts=typed_parts()).percent}%"
+            except ValueError:
+                total = "—"  # shown until every part reads
+            combined.text = f"Combined: {total}"
+
+        def changed_rate() -> TaxRate:
+            """The rate as typed; ValueError says what's wrong."""
+            changed = replace(
+                rate,
+                name=(name.value or "").strip(),
+                parts=typed_parts(),
+                is_default=default.value,
+            )
+            check_tax_rate(changed)
+            return changed
+
+        def confirm() -> None:
+            try:
+                dialog.submit(changed_rate())
+            except ValueError as problem:
+                ui.notify(str(problem), type="negative")
+
+        for part in rate.parts:
+            add_part(part)
+        with ui.row().classes("w-full items-center"):
+            if rate.id is not None:
+                ui.button("Delete", on_click=lambda: dialog.submit(DELETE)).props(
+                    "flat color=negative"
+                ).mark("delete-tax-rate")
+            ui.space()
+            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button("Save", on_click=confirm).mark("save-tax-rate")
+    # Esc or a click outside closes it with None, as Cancel does.
+    answer = await dialog
+    dialog.delete()
+    return answer
 
 
 def quote_list_item(

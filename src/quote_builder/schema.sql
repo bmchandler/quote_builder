@@ -21,6 +21,28 @@ CREATE TABLE IF NOT EXISTS businesses (
     extend_days INTEGER CHECK (extend_days > 0)
 ) STRICT;
 
+-- A business's sales tax rates, each the sum of its parts.
+CREATE TABLE IF NOT EXISTS tax_rates (
+    id          INTEGER PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES businesses (id),
+    name        TEXT    NOT NULL CHECK (name != ''),
+    -- 1 for the rate a new quote starts with.
+    is_default  INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1))
+) STRICT;
+
+-- At most one default per business (a partial index, as for drafts).
+CREATE UNIQUE INDEX IF NOT EXISTS one_default_tax_rate
+    ON tax_rates (business_id) WHERE is_default = 1;
+
+CREATE TABLE IF NOT EXISTS tax_rate_parts (
+    id          INTEGER PRIMARY KEY,
+    tax_rate_id INTEGER NOT NULL REFERENCES tax_rates (id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,           -- order in the rate
+    name        TEXT    NOT NULL,           -- State, County; may be blank
+    percent     TEXT    NOT NULL,
+    UNIQUE (tax_rate_id, position)
+) STRICT;
+
 -- What the app remembers between runs: one row at most (id 1).
 CREATE TABLE IF NOT EXISTS app_state (
     id          INTEGER PRIMARY KEY CHECK (id = 1),

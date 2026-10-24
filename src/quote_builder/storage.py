@@ -12,7 +12,7 @@ from decimal import Decimal
 from importlib.resources import files
 from pathlib import Path
 
-from quote_builder.business import Business
+from quote_builder.business import Business, TaxPart, TaxRate
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
     Extension,
@@ -162,6 +162,95 @@ def save_business(conn: sqlite3.Connection, business: Business) -> None:
         ).fetchone()
     if row is None:
         raise NameNeeded
+
+
+def list_tax_rates(conn: sqlite3.Connection, business_id: int) -> list[TaxRate]:
+    """A business's tax rates by name, in any case, each with its parts."""
+    rows = conn.execute(
+        """
+        SELECT id, business_id, name, is_default
+        FROM tax_rates
+        WHERE business_id = ?
+        ORDER BY name COLLATE NOCASE, id
+        """,
+        (business_id,),
+    ).fetchall()
+    # Every rate's parts in one query, as for line items.
+    parts: dict[int, list[TaxPart]] = {}
+    for part in conn.execute(
+        """
+        SELECT p.tax_rate_id, p.name, p.percent
+        FROM tax_rate_parts AS p JOIN tax_rates AS r ON r.id = p.tax_rate_id
+        WHERE r.business_id = ?
+        ORDER BY p.tax_rate_id, p.position
+        """,
+        (business_id,),
+    ):
+        parts.setdefault(part["tax_rate_id"], []).append(
+            TaxPart(part["name"], _decimal(part["percent"]))
+        )
+    return [
+        TaxRate(
+            business_id=row["business_id"],
+            name=row["name"],
+            parts=parts.get(row["id"], []),
+            is_default=bool(row["is_default"]),
+            id=row["id"],
+        )
+        for row in rows
+    ]
+
+
+def save_tax_rate(conn: sqlite3.Connection, rate: TaxRate) -> TaxRate:
+    """Store a tax rate, new (no id) or changed, with its parts; returns
+    it with its id. Made the default, it takes over from the business's
+    old one."""
+    values = {**vars(rate), "parts": None}  # parts go in their own table
+    with conn:
+        if rate.is_default:
+            # First, as only one can be the default at a time.
+            conn.execute(
+                """
+                UPDATE tax_rates SET is_default = 0
+                WHERE business_id = :business_id AND id IS NOT :id
+                """,
+                values,
+            )
+        if rate.id is None:
+            rate_id = conn.execute(
+                """
+                INSERT INTO tax_rates (business_id, name, is_default)
+                VALUES (:business_id, :name, :is_default)
+                RETURNING id
+                """,
+                values,
+            ).fetchone()["id"]
+        else:
+            rate_id = rate.id
+            conn.execute(
+                "UPDATE tax_rates SET name = :name, is_default = :is_default"
+                " WHERE id = :id",
+                values,
+            )
+            # Replaced rather than matched up, as a quote's lines are.
+            conn.execute("DELETE FROM tax_rate_parts WHERE tax_rate_id = ?", (rate_id,))
+        conn.executemany(
+            """
+            INSERT INTO tax_rate_parts (tax_rate_id, position, name, percent)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (rate_id, position, part.name, _text(part.percent))
+                for position, part in enumerate(rate.parts)
+            ],
+        )
+    return replace(rate, id=rate_id)
+
+
+def delete_tax_rate(conn: sqlite3.Connection, rate_id: int) -> None:
+    """Delete a tax rate, and its parts with it."""
+    with conn:
+        conn.execute("DELETE FROM tax_rates WHERE id = ?", (rate_id,))
 
 
 def save_new_quote(
