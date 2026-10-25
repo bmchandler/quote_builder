@@ -334,11 +334,18 @@ def test_short_date_is_local(monkeypatch):
         time.tzset()
 
 
-async def test_totals_update_as_you_type(user):
+def rate_725(conn, **changes):
+    """A 7.25% rate, the business's default unless changed."""
+    parts = [TaxPart("", Decimal("7.25"))]
+    return home_county(conn, parts=parts, is_default=True, **changes)
+
+
+async def test_totals_update_as_you_type(user, conn):
+    rate_725(conn)
     await new_quote(user)
     fill_line(user, 1, "Trim hedges", "2.5", "30")
     user.find(marker="discount-1").type("10%")
-    user.find(marker="tax-1").type("7.25")
+    user.find(marker="taxed-1").click()
 
     # $75.00 - 10% = $67.50; 7.25% tax on that = $4.89 ($4.894).
     await eventually(lambda: text(user.find(marker="line-total-1")) == "$67.50")
@@ -382,21 +389,24 @@ async def test_discount_over_the_line_is_refused(user, conn):
 
 
 async def test_discount_and_tax_are_saved_and_shown_again(user, conn):
+    rate = rate_725(conn)
     quote = make_quote(
+        tax_rate_id=rate.id,
         line_items=[
-            LineItem("Hedge trimmer blade", Decimal(1), 1899, tax_percent=Decimal("7.25"), discount_cents=200),
+            LineItem("Hedge trimmer blade", Decimal(1), 1899, taxed=True, discount_cents=200),
             LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10")),
-        ]
+        ],
     )
-    saved = save_new_quote(conn, quote)
+    saved = load_quote(conn, save_new_quote(conn, quote).number)
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
 
     await user.should_see(f"{saved.number} (Draft)")
+    assert value(user.find(marker="tax-rate")) == rate.id
     assert value(user.find(marker="discount-1")) == "$2.00"
-    assert value(user.find(marker="tax-1")) == "7.25"
+    assert value(user.find(marker="taxed-1")) is True
     assert value(user.find(marker="discount-2")) == "10%"
-    assert value(user.find(marker="tax-2")) == ""
+    assert value(user.find(marker="taxed-2")) is False
     user.find("Save").click()
     assert load_quote(conn, saved.number) == saved
 
@@ -411,16 +421,113 @@ async def test_list_shows_each_quotes_total(user, conn):
 
 async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     quote = make_quote(
+        tax_rate_id=rate_725(conn).id,
         line_items=[
-            LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10"), tax_percent=Decimal("7.25")),
+            LineItem("Trim hedges", Decimal("2.5"), 3000, discount_percent=Decimal("10"), taxed=True),
         ],
     )
     saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
 
-    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, tax 7.25% = $67.50")
+    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, taxed = $67.50")
+    assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
     assert text(user.find(marker="foot-total")) == "$72.39"
+
+
+async def test_an_untaxed_quote_says_so(user, conn):
+    saved = mark_quoted(conn, make_quote(), ISSUED, VALID_UNTIL)
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(marker="view-tax-rate")
+    assert text(user.find(marker="view-tax-rate")) == "Tax: Untaxed"
+
+
+async def test_a_new_quote_starts_on_the_default_rate(user, conn):
+    home_county(conn)  # not the default
+    lake = rate_725(conn, name="Lake county")
+    await new_quote(user)
+    assert value(user.find(marker="tax-rate")) == lake.id
+
+
+async def test_a_new_quote_without_a_default_is_untaxed(user, conn):
+    home_county(conn)
+    await new_quote(user)
+    assert value(user.find(marker="tax-rate")) == "untaxed"
+
+
+async def test_a_new_line_is_untaxed_to_start(user):
+    await new_quote(user)
+    assert value(user.find(marker="taxed-1")) is False
+
+
+async def test_changing_the_rate_refigures_the_tax(user, conn):
+    rate_725(conn)
+    lake = home_county(conn, name="Lake county")  # 6.25%
+    await new_quote(user)
+    fill_line(user, 1, "Gutter guard", "1", "100")
+    user.find(marker="taxed-1").click()
+    await eventually(lambda: text(user.find(marker="foot-tax")) == "$7.25")
+
+    [rate] = user.find(marker="tax-rate").elements
+    rate.value = lake.id
+    await eventually(lambda: text(user.find(marker="foot-tax")) == "$6.25")
+    rate.value = "untaxed"
+    await eventually(lambda: text(user.find(marker="foot-tax")) == "$0.00")
+    assert value(user.find(marker="taxed-1")) is True  # kept for switching back
+
+
+async def test_a_saved_draft_keeps_its_rate(user, conn):
+    rate_725(conn)
+    lake = home_county(conn, name="Lake county")
+    await new_quote(user)
+    fill_line(user, 1, "Gutter guard", "1", "100")
+    [rate] = user.find(marker="tax-rate").elements
+    rate.value = lake.id
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Saved")
+    [summary] = list_quotes(conn, BUSINESS)
+    assert load_quote(conn, summary.number).tax_rate_id == lake.id
+
+
+async def test_changing_the_rate_counts_as_a_change(user, conn):
+    lake = home_county(conn, name="Lake county")
+    saved = save_new_quote(conn, make_quote())
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+    [rate] = user.find(marker="tax-rate").elements
+    rate.value = lake.id
+    user.find("New Quote").click()
+
+    await user.should_see(DISCARD_QUESTION)
+
+
+async def test_mark_quoted_shows_the_rate_it_kept(user, conn):
+    rate_725(conn)
+    await new_quote(user)
+    fill_line(user, 1, "Gutter guard", "1", "100")
+    user.find(marker="taxed-1").click()
+    user.find(kind=ui.button, content="Mark Quoted").click()
+    await user.should_see("Mark this new quote quoted?")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see(marker="view-tax-rate")
+    assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
+    assert text(user.find(marker="foot-total")) == "$107.25"
+
+
+async def test_a_rate_a_draft_uses_isnt_deleted(user, conn):
+    rate = rate_725(conn)
+    save_new_quote(conn, make_quote(tax_rate_id=rate.id))
+    await open_settings(user)
+    user.find(marker=f"tax-rate-{rate.id}").click()
+    await user.should_see("Edit tax rate")
+    user.find(marker="delete-tax-rate").click()
+
+    await user.should_see("Home county is used by 1 draft")
+    assert list_tax_rates(conn, BUSINESS) == [rate]
 
 
 DISCARD_QUESTION = "Discard unsaved changes?"

@@ -48,6 +48,11 @@ Future (not now):
   beside the heading, or From and To boxes under it (a single line
   of details was ruled out).
 - A banner image at the top left instead of the business's name.
+- Deleting a tax rate drafts use, guided (noted 2026-10-25): in place
+  of the refusal, a dialog listing those drafts, each a link to open
+  it and pick another rate, with a button to make the new rate first.
+  The order matters: a user who moves drafts to a stand-in rate before
+  the right one exists can lose track of which drafts to move again.
 - A simple dashboard (quote counts, extensions, and the like): counts
   per business or pilot and in all, drafts, and metrics around
   extensions (noted 2026-10-24).
@@ -96,11 +101,11 @@ are worked out with `Decimal` and rounded to the cent where shown.
   taxable (often not, for a service).
 - **Quote**: number, client, tax rate, date issued, valid-through
   date, status, notes, and line items.
-- **Line item**: description, quantity, unit price, discount, and tax
-  rate.
+- **Line item**: description, quantity, unit price, discount, and
+  whether it's taxed (at the quote's rate; decided 2026-10-25).
   Picking a catalog item fills these in; they can then be changed for
   this quote only. A line can also be typed in by hand, with no catalog
-  item, its tax rate set by hand (none, if untaxed).
+  item, taxed or not as the user ticks it.
 
 Tax is per line item (decided 2026-10-17): parts usually carry sales
 tax, services often don't, and the app doesn't decide which; the user
@@ -112,22 +117,26 @@ Whether something is taxed and at what rate are kept apart (decided
 A catalog item says only whether it's taxable; a tax rate says how
 much, built from its parts (state, county, city, district), so a part
 that changes is changed once. A quote takes the business's default
-tax rate, changeable for a job elsewhere. Picking a catalog item fills
-in a line's tax with the quote's combined rate if the item is taxable,
-none if not. The line still stores the number itself, copied in, so a
-line typed by hand works as now, and a quoted quote's figures freeze as
-below. A tax category per item (parts, food, services) instead of
-taxable yes or no is a later option, for states that tax such groups
-differently. A quote shows one Tax line; tax by part (state, local) is
-an option, as the parts are kept. Built with the catalog and tax
-rate steps.
+tax rate, changeable for a job elsewhere, or Untaxed (an exempt
+customer). Each line is taxed or not (decided 2026-10-25): taxed
+lines all use the quote's rate, so a line can't have a rate of its
+own; picking a catalog item will tick it if the item is taxable. A
+draft follows its rate as it is now, so a county's change reaches
+drafts already written; marking it Quoted keeps the rate's name and
+percent with the quote, with its figures, so a later change to the
+rate never alters what a client was given. A tax category per item
+(parts, food, services) instead of taxable yes or no is a later
+option, for states that tax such groups differently: it's the case a
+single rate per quote doesn't cover. A quote shows one Tax line; tax
+by part (state, local) is an option, as the parts are kept.
 
 Discounts are per line item, as an amount or a percent (decided
 2026-10-17); a line's tax is worked out on its discounted amount.
 There's no whole-quote discount. A discount can't be more than its
 line. In the form, one Discount field takes either: `10%` is a percent,
-anything else an amount (`5`, `$5.50`); blank or zero is none. Tax %
-takes `7.25` or `7.25%`, blank for none (decided 2026-10-19).
+anything else an amount (`5`, `$5.50`); blank or zero is none. A tax
+rate's Percent takes `7.25` or `7.25%`, blank for none (decided
+2026-10-19, for the Tax % a line had then).
 
 Each line is worked out to the cent on its own (totals.py): quantity ×
 unit price, less the discount, then tax on what's left, each rounded
@@ -290,14 +299,18 @@ Built (as of 2026-10-24), each with tests:
     a new one gets them once saved. Adding or clicking one opens a
     dialog: Name, its parts (each a Part, its example "State, County,
     or City, etc.", which may be blank, and a
-    Percent, as Tax % takes it; "Add part", and an × to remove one),
+    Percent; "Add part", and an × to remove one),
     "Combined: 7.25%" as it's typed ("—" until every part reads), and
     "Default for new quotes", checked to start for a business's first
     rate. A rate needs a name and a part; a message says which, or
     which part doesn't read. The dialog saves on its own, apart from
     the form's Save, so a rate never waits unsaved; a rate already
     saved has Delete. One default per business: making another the
-    default takes over. Nothing on a quote uses them yet.
+    default takes over. Delete is refused while a draft uses the rate
+    (decided 2026-10-25): "Home county is used by 2 drafts", as the
+    drafts would lose their tax without a word. A quoted quote keeps
+    its own copy, so it doesn't hold a delete up. For now; a guided
+    flow is planned (see Future).
   - The top left (decided 2026-10-24) shows "Quote Builder" until the
     business has a name, then the name, in italics for a pilot. Once
     there's a second, it's a dropdown of all the names, in the same
@@ -315,8 +328,17 @@ Built (as of 2026-10-24), each with tests:
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit price,
-    discount, tax %, and notes, with totals updating as you type); Save
+    discount, Taxed, and notes, with totals updating as you type); Save
     saves it. Any other status opens read-only.
+  - Tax on a quote (decided 2026-10-25): a draft's "Tax rate", above
+    its lines, lists "Untaxed" and the business's rates ("Home county
+    · 7.25%"), starting on the default (Untaxed without one). Each
+    line has a Taxed box, unticked to start (as a blank Tax % was).
+    Changing the rate works the taxed lines out again at once;
+    Untaxed leaves the boxes ticked, so switching back restores the
+    tax. The rate counts as a change for "Discard unsaved changes?".
+    A quoted quote shows "Tax: Home county 7.25%" ("Tax: Untaxed"),
+    and its lines say "taxed".
   - Leaving a form with unsaved changes asks first (decided
     2026-10-19): New Quote, or opening another quote from the list,
     shows "Discard unsaved changes?" with Keep Editing and Discard; Esc
@@ -335,7 +357,8 @@ Built (as of 2026-10-24), each with tests:
     business's days valid on, 30 to start). Valid-through
     can't be before the date issued, and a quote needs a line.
     Confirming saves the form's changes and marks it Quoted together,
-    freezing its figures (see Data); it then opens read-only, showing
+    freezing its figures and its tax rate as it is then (see Data); it
+    then opens read-only, showing
     both dates. The database refuses a non-draft without its dates and
     frozen totals.
   - Expiry: Quoted quotes past their valid-through date are marked
@@ -392,11 +415,7 @@ Built (as of 2026-10-24), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Tax rates on quotes: a quote takes the business's default rate,
-   changeable (see Data). How a line uses it before the catalog
-   exists: to ask before building. What deleting a rate does once
-   quotes use it: also to settle then.
-2. Clients, then the catalog.
+1. Clients, then the catalog.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

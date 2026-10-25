@@ -58,7 +58,7 @@ class LineItem:
     description: str
     quantity: Decimal
     unit_price_cents: int
-    tax_percent: Decimal = Decimal(0)
+    taxed: bool = False  # at the quote's tax rate
     # An amount or a percent, never both.
     discount_cents: int | None = None
     discount_percent: Decimal | None = None
@@ -86,6 +86,12 @@ class Quote:
     valid_until: date | None = None
     notes: str = ""
     line_items: list[LineItem] = field(default_factory=list)
+    # The business's tax rate it's taxed at; None for Untaxed. A draft
+    # follows the rate as it is now; once quoted, its name and percent
+    # as they were are kept (tax_name, tax_percent), as figures are.
+    tax_rate_id: int | None = None
+    tax_name: str = ""  # blank for Untaxed
+    tax_percent: Decimal = Decimal(0)
     frozen: QuoteTotals | None = None  # stored once quoted, as for lines
     extensions: list[Extension] = field(default_factory=list)  # oldest first
 
@@ -117,8 +123,9 @@ class SearchText:
 def revision_draft(quote: Quote, revision: int) -> Quote:
     """A new draft of `quote` numbered `revision`, not yet saved.
 
-    It keeps the lines and notes, as changeable, but none of what the
-    quoted version was given: dates, frozen figures, extensions.
+    It keeps the lines, notes, and tax rate, as changeable, but none of
+    what the quoted version was given: dates, frozen figures (the rate's
+    percent among them), extensions.
     """
     return Quote(
         business_id=quote.business_id,
@@ -126,4 +133,6 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
         revision=revision,
         notes=quote.notes,
         line_items=[replace(item, frozen=None) for item in quote.line_items],
+        # The same rate, as it is now (filled in when it's shown).
+        tax_rate_id=quote.tax_rate_id,
     )

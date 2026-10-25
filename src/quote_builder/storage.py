@@ -247,10 +247,40 @@ def save_tax_rate(conn: sqlite3.Connection, rate: TaxRate) -> TaxRate:
     return replace(rate, id=rate_id)
 
 
+class RateInUse(Exception):
+    """A tax rate a draft uses can't be deleted; `drafts` says how many."""
+
+    def __init__(self, drafts: int):
+        super().__init__(f"{drafts} drafts use it")
+        self.drafts = drafts
+
+
 def delete_tax_rate(conn: sqlite3.Connection, rate_id: int) -> None:
-    """Delete a tax rate, and its parts with it."""
+    """Delete a tax rate, and its parts with it.
+
+    Raises RateInUse while a draft uses it: the draft would lose its
+    tax without a word. A quoted quote keeps its own copy of the rate.
+    """
     with conn:
-        conn.execute("DELETE FROM tax_rates WHERE id = ?", (rate_id,))
+        # The check is in the WHERE clause, so checking and deleting are
+        # one step.
+        row = conn.execute(
+            """
+            DELETE FROM tax_rates
+            WHERE id = :id
+              AND NOT EXISTS (SELECT 1 FROM quotes
+                              WHERE tax_rate_id = :id AND status = 'Draft')
+            RETURNING id
+            """,
+            {"id": rate_id},
+        ).fetchone()
+        if row is None:
+            drafts = conn.execute(
+                "SELECT count(*) FROM quotes WHERE tax_rate_id = ? AND status = 'Draft'",
+                (rate_id,),
+            ).fetchone()[0]
+            if drafts:
+                raise RateInUse(drafts)
 
 
 def save_new_quote(
@@ -275,12 +305,14 @@ def save_new_quote(
                 """
                 INSERT INTO quotes
                     (business_id, number, revision, status, issued_on,
-                     valid_until, notes, updated_at, frozen_items_cents,
-                     frozen_discount_cents, frozen_tax_cents,
-                     frozen_total_cents)
+                     valid_until, notes, tax_rate_id, updated_at,
+                     frozen_items_cents, frozen_discount_cents,
+                     frozen_tax_cents, frozen_total_cents, frozen_tax_name,
+                     frozen_tax_percent)
                 VALUES (:business_id, :number, :revision, :status, :issued_on,
-                        :valid_until, :notes, :updated_at, :items_cents,
-                        :discount_cents, :tax_cents, :total_cents)
+                        :valid_until, :notes, :tax_rate_id, :updated_at,
+                        :items_cents, :discount_cents, :tax_cents,
+                        :total_cents, :tax_name, :tax_percent)
                 ON CONFLICT (number, revision) DO NOTHING
                 RETURNING id
                 """,
@@ -338,9 +370,12 @@ def mark_quoted(
     IntegrityError as save_revision does; `draw_number` and `now` as for
     save_new_quote.
     """
+    # The tax rate as it is now is the one frozen, whatever the quote
+    # was shown with.
+    taxed = _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
     quoted = freeze(
         replace(
-            quote, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
+            taxed, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
         )
     )
     if quoted.number is None:
@@ -369,11 +404,13 @@ def _insert_revision(
         """
         INSERT INTO quotes
             (business_id, number, revision, status, issued_on, valid_until,
-             notes, updated_at, frozen_items_cents, frozen_discount_cents,
-             frozen_tax_cents, frozen_total_cents)
+             notes, tax_rate_id, updated_at, frozen_items_cents,
+             frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
+             frozen_tax_name, frozen_tax_percent)
         VALUES (:business_id, :number, :revision, :status, :issued_on,
-                :valid_until, :notes, :updated_at, :items_cents,
-                :discount_cents, :tax_cents, :total_cents)
+                :valid_until, :notes, :tax_rate_id, :updated_at, :items_cents,
+                :discount_cents, :tax_cents, :total_cents, :tax_name,
+                :tax_percent)
         RETURNING id
         """,
         _quote_values(quote, quote.number, _timestamp(now)),
@@ -392,9 +429,11 @@ def _overwrite_draft(
         UPDATE quotes
         SET status = :status, issued_on = :issued_on,
             valid_until = :valid_until, notes = :notes,
-            updated_at = :updated_at, frozen_items_cents = :items_cents,
+            tax_rate_id = :tax_rate_id, updated_at = :updated_at,
+            frozen_items_cents = :items_cents,
             frozen_discount_cents = :discount_cents,
-            frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents
+            frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents,
+            frozen_tax_name = :tax_name, frozen_tax_percent = :tax_percent
         WHERE number = :number AND revision = :revision AND status = 'Draft'
         RETURNING id
         """,
@@ -498,12 +537,60 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         "issued_on": _iso(quote.issued_on),
         "valid_until": _iso(quote.valid_until),
         "notes": quote.notes,
+        "tax_rate_id": quote.tax_rate_id,
         "updated_at": updated_at,
         "items_cents": frozen.items_cents if frozen else None,
         "discount_cents": frozen.discount_cents if frozen else None,
         "tax_cents": frozen.tax_cents if frozen else None,
         "total_cents": frozen.total_cents if frozen else None,
+        # The rate's name and percent are kept only once quoted: a
+        # draft's follow the rate as it is now.
+        "tax_name": quote.tax_name if frozen else None,
+        "tax_percent": str(quote.tax_percent) if frozen else None,
     }
+
+
+def _rates_now(conn: sqlite3.Connection, rate_ids: list[int]) -> dict[int, TaxRate]:
+    """These tax rates as they are now, by id: what a draft is taxed at.
+
+    Their percents are added up here, as Decimal: SQLite's sum() would
+    go through floating point.
+    """
+    ids = sorted({rate_id for rate_id in rate_ids if rate_id is not None})
+    if not ids:
+        return {}
+    placeholders = ", ".join("?" * len(ids))
+    rates: dict[int, TaxRate] = {}
+    for row in conn.execute(
+        f"""
+        SELECT r.id, r.business_id, r.name, r.is_default,
+               p.name AS part_name, p.percent
+        FROM tax_rates AS r JOIN tax_rate_parts AS p ON p.tax_rate_id = r.id
+        WHERE r.id IN ({placeholders})
+        ORDER BY r.id, p.position
+        """,
+        ids,
+    ):
+        rate = rates.setdefault(
+            row["id"],
+            TaxRate(
+                row["business_id"],
+                row["name"],
+                is_default=bool(row["is_default"]),
+                id=row["id"],
+            ),
+        )
+        rate.parts.append(TaxPart(row["part_name"], _decimal(row["percent"])))
+    return rates
+
+
+def _with_rate(quote: Quote, rates: dict[int, TaxRate]) -> Quote:
+    """A draft with its rate's name and percent as they are now; Untaxed
+    if it has none."""
+    rate = rates.get(quote.tax_rate_id)
+    if rate is None:
+        return replace(quote, tax_rate_id=None, tax_name="", tax_percent=Decimal(0))
+    return replace(quote, tax_name=rate.name, tax_percent=rate.percent)
 
 
 def list_quotes(
@@ -594,7 +681,7 @@ def search_texts(
 
 _SUMMARY_COLUMNS = """
     q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
-    q.valid_until, q.frozen_total_cents
+    q.valid_until, q.frozen_total_cents, q.tax_rate_id
 """
 
 
@@ -602,9 +689,12 @@ def _summaries(
     conn: sqlite3.Connection, rows: list[sqlite3.Row]
 ) -> list[QuoteSummary]:
     lines = _line_items_of(conn, [row["id"] for row in rows])
+    rates = _rates_now(conn, [row["tax_rate_id"] for row in rows])
     summaries = []
     for row in rows:
         items = lines.get(row["id"], [])
+        rate = rates.get(row["tax_rate_id"])
+        tax_percent = rate.percent if rate else Decimal(0)
         summaries.append(
             QuoteSummary(
                 number=row["number"],
@@ -615,7 +705,7 @@ def _summaries(
                 total_cents=(
                     row["frozen_total_cents"]
                     if row["frozen_total_cents"] is not None
-                    else quote_totals(items).total_cents
+                    else quote_totals(items, tax_percent).total_cents
                 ),
                 issued_on=_date(row["issued_on"]),
                 valid_until=_date(row["valid_until"]),
@@ -638,7 +728,7 @@ def _line_items_of(
     placeholders = ", ".join("?" * len(quote_ids))
     rows = conn.execute(
         f"""
-        SELECT quote_id, description, quantity, unit_price_cents, tax_percent,
+        SELECT quote_id, description, quantity, unit_price_cents, taxed,
                discount_cents, discount_percent, frozen_amount_cents,
                frozen_discount_cents, frozen_tax_cents
         FROM line_items
@@ -661,8 +751,9 @@ def load_quote(
     row = conn.execute(
         """
         SELECT id, business_id, number, revision, status, issued_on,
-               valid_until, notes, frozen_items_cents, frozen_discount_cents,
-               frozen_tax_cents, frozen_total_cents
+               valid_until, notes, tax_rate_id, frozen_items_cents,
+               frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
+               frozen_tax_name, frozen_tax_percent
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -673,7 +764,7 @@ def load_quote(
     ).fetchone()
     if row is None:
         return None
-    return Quote(
+    quote = Quote(
         business_id=row["business_id"],
         number=row["number"],
         revision=row["revision"],
@@ -682,6 +773,7 @@ def load_quote(
         valid_until=_date(row["valid_until"]),
         notes=row["notes"],
         line_items=_line_items_of(conn, [row["id"]]).get(row["id"], []),
+        tax_rate_id=row["tax_rate_id"],
         frozen=(
             None
             if row["frozen_total_cents"] is None
@@ -693,6 +785,13 @@ def load_quote(
             )
         ),
         extensions=_extensions_of(conn, row["id"]),
+    )
+    if row["frozen_tax_percent"] is None:  # a draft: the rate as it is now
+        return _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
+    return replace(
+        quote,
+        tax_name=row["frozen_tax_name"],
+        tax_percent=Decimal(row["frozen_tax_percent"]),
     )
 
 
@@ -723,7 +822,7 @@ def _insert_line_items(
         """
         INSERT INTO line_items
             (quote_id, position, description, quantity, unit_price_cents,
-             tax_percent, discount_cents, discount_percent,
+             taxed, discount_cents, discount_percent,
              frozen_amount_cents, frozen_discount_cents, frozen_tax_cents)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -734,7 +833,7 @@ def _insert_line_items(
                 item.description,
                 str(item.quantity),
                 item.unit_price_cents,
-                str(item.tax_percent),
+                item.taxed,
                 item.discount_cents,
                 _text(item.discount_percent),
                 item.frozen.amount_cents if item.frozen else None,
@@ -751,7 +850,7 @@ def _line_item(row: sqlite3.Row) -> LineItem:
         description=row["description"],
         quantity=Decimal(row["quantity"]),
         unit_price_cents=row["unit_price_cents"],
-        tax_percent=Decimal(row["tax_percent"]),
+        taxed=bool(row["taxed"]),
         discount_cents=row["discount_cents"],
         discount_percent=_decimal(row["discount_percent"]),
         frozen=(

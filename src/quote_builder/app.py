@@ -45,6 +45,7 @@ from quote_builder.quotes import (
 from quote_builder.storage import (
     NameNeeded,
     NotExtendable,
+    RateInUse,
     add_business,
     connect,
     current_business,
@@ -216,7 +217,18 @@ def quote_page(
 
         async def new_quote() -> None:
             if await may_leave():
-                show(Quote(business_id=current_business(conn).id))
+                business_id = current_business(conn).id
+                # Taxed at the business's default rate, if it has one.
+                default = next(
+                    (r for r in list_tax_rates(conn, business_id) if r.is_default),
+                    None,
+                )
+                show(
+                    Quote(
+                        business_id=business_id,
+                        tax_rate_id=default.id if default else None,
+                    )
+                )
 
         async def open_quote(number: str, revision: int | None = None) -> None:
             """Open a version of a quote: its newest, if `revision` is None."""
@@ -600,8 +612,14 @@ def tax_rates(conn: sqlite3.Connection, business_id: int) -> None:
     async def edit(rate: TaxRate) -> None:
         answer = await ask_tax_rate(rate)
         if answer is DELETE:
-            delete_tax_rate(conn, rate.id)
-            ui.notify(f"Deleted {rate.name}")
+            try:
+                delete_tax_rate(conn, rate.id)
+                ui.notify(f"Deleted {rate.name}")
+            except RateInUse as in_use:
+                # For now; a flow to move those drafts to another rate
+                # is planned (REQUIREMENTS.md).
+                drafts = "1 draft" if in_use.drafts == 1 else f"{in_use.drafts} drafts"
+                ui.notify(f"{rate.name} is used by {drafts}", type="negative")
         elif answer is not None:
             save_tax_rate(conn, answer)
             ui.notify(f"Saved {answer.name}")
@@ -631,6 +649,7 @@ def tax_rates(conn: sqlite3.Connection, business_id: int) -> None:
 
 
 DELETE = object()  # ask_tax_rate's answer when Delete is clicked
+UNTAXED = "untaxed"  # the Tax rate choice for no rate (the others are ids)
 
 
 async def ask_tax_rate(rate: TaxRate) -> TaxRate | object | None:
@@ -842,8 +861,14 @@ class LineInputs:
                 "discount",
                 "w-20",
             ).props('placeholder="$ or %"')
-            self.tax = text_input(
-                "Tax %", format_percent(item.tax_percent) if item else "", "tax", "w-14"
+            # Untaxed to start, as a line was with a blank Tax %.
+            self.taxed = (
+                ui.checkbox(
+                    "Taxed", value=item.taxed if item else False, on_change=on_change
+                )
+                .props("dense")
+                .classes("pb-2")
+                .mark(f"taxed-{marker}")
             )
             self.total = (
                 ui.label().classes("w-20 text-right pb-2").mark(f"line-total-{marker}")
@@ -862,7 +887,7 @@ class LineInputs:
             description=self.description.value.strip(),
             quantity=parse_quantity(self.quantity.value),
             unit_price_cents=parse_money(self.price.value),
-            tax_percent=parse_percent(self.tax.value),
+            taxed=self.taxed.value,
             discount_cents=discount_cents,
             discount_percent=discount_percent,
         )
@@ -895,6 +920,31 @@ def quote_editor(
     else:
         heading = f"{name_of(quote)} ({quote.status})"
     quote_heading(heading, on_history)
+    # The business's rates as they are now: a draft follows its rate.
+    rates = {rate.id: rate for rate in list_tax_rates(conn, quote.business_id)}
+    tax_rate = (
+        ui.select(
+            {UNTAXED: "Untaxed"}
+            | {rate.id: f"{rate.name} · {rate.percent}%" for rate in rates.values()},
+            label="Tax rate",
+            value=quote.tax_rate_id if quote.tax_rate_id in rates else UNTAXED,
+            on_change=lambda: update_totals(),
+        )
+        .classes("w-64")
+        .mark("tax-rate")
+    )
+
+    def with_tax_rate(changed: Quote) -> Quote:
+        """`changed` taxed at the rate picked."""
+        rate = rates.get(tax_rate.value)
+        if rate is None:
+            return replace(
+                changed, tax_rate_id=None, tax_name="", tax_percent=Decimal(0)
+            )
+        return replace(
+            changed, tax_rate_id=rate.id, tax_name=rate.name, tax_percent=rate.percent
+        )
+
     lines_column = ui.column().classes("w-full")
     lines: list[LineInputs] = []  # in order on the quote
     added = 0  # lines ever added, so each gets its own test marker
@@ -915,6 +965,7 @@ def quote_editor(
 
     @ui.refreshable
     def foot() -> None:
+        percent = with_tax_rate(quote).tax_percent
         items = []
         for line in lines:
             if not line.price.value.strip():
@@ -924,12 +975,14 @@ def quote_editor(
                 continue
             try:
                 item = line.item()
-                line.total.text = format_money(line_totals(item).net_cents)
+                line.total.text = format_money(line_totals(item, percent).net_cents)
                 items.append(item)
             except ValueError:
                 line.total.text = "—"  # shown until the line reads
         if len(items) == len(lines):
-            totals_foot(quote_totals(item for item in items if item is not None))
+            totals_foot(
+                quote_totals((item for item in items if item is not None), percent)
+            )
         else:
             totals_foot(None)
 
@@ -963,7 +1016,9 @@ def quote_editor(
         except ValueError as problem:
             ui.notify(str(problem), type="negative")
             return None
-        return replace(quote, notes=notes.value.strip(), line_items=items)
+        return with_tax_rate(
+            replace(quote, notes=notes.value.strip(), line_items=items)
+        )
 
     def save() -> None:
         changed = changed_quote()
@@ -1013,11 +1068,11 @@ def quote_editor(
                 line.quantity.value,
                 line.price.value,
                 line.discount.value,
-                line.tax.value,
+                line.taxed.value,
             )
             for line in lines
         )
-        return (typed_lines, notes.value)
+        return (tax_rate.value, typed_lines, notes.value)
 
     # Saving shows the quote again in a new form, so this is also the
     # state as last saved. Changes undone by hand count as no change.
@@ -1196,6 +1251,12 @@ def quote_view(
         ui.label(f"Extended {times}; first valid through {first}").classes(
             "text-grey-7"
         ).mark("extensions")
+    # The rate as it was when quoted, kept with the quote.
+    if quote.tax_name:
+        tax = f"Tax: {quote.tax_name} {quote.tax_percent}%"
+    else:
+        tax = "Tax: Untaxed"
+    ui.label(tax).mark("view-tax-rate")
     with ui.row():
         if quote.status in (Status.QUOTED, Status.EXPIRED):
             ui.button("Extend", icon="event", on_click=on_extend).props("outline")
@@ -1208,9 +1269,10 @@ def quote_view(
         rest = f": {item.quantity} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
             rest += f", less {discount}"
-        if item.tax_percent:
-            rest += f", tax {item.tax_percent}%"
-        rest += f" = {format_money(shown_line_totals(item).net_cents)}"
+        if item.taxed:
+            rest += ", taxed"
+        net = shown_line_totals(item, quote.tax_percent).net_cents
+        rest += f" = {format_money(net)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals_foot(shown_quote_totals(quote))
     if quote.notes:
@@ -1251,7 +1313,7 @@ def _checked_item(n: int, line: LineInputs) -> LineItem:
         if not line.description.value.strip():
             raise ValueError("A description is needed")
         item = line.item()
-        line_totals(item)  # refuses a discount over the line
+        line_totals(item, Decimal(0))  # refuses a discount over the line
         return item
     except ValueError as problem:
         raise ValueError(f"Line {n}: {problem}") from None

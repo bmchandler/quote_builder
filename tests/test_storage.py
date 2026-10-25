@@ -23,6 +23,7 @@ from quote_builder.storage import (
     NoFreeQuoteNumber,
     NotADraft,
     NotExtendable,
+    RateInUse,
     add_business,
     connect,
     current_business,
@@ -66,8 +67,10 @@ def numbers(*drawn):
     return iter(drawn).__next__
 
 
-def lawn_quote():
+def lawn_quote(tax_rate_id=None):
+    """The blade is taxed: at 7.25% given the id of a lawn_rate."""
     return make_quote(
+        tax_rate_id=tax_rate_id,
         issued_on=date(2026, 10, 18),
         valid_until=date(2026, 11, 17),
         notes="Front and back yard.",
@@ -83,11 +86,17 @@ def lawn_quote():
                 "Hedge trimmer blade",
                 Decimal("1"),
                 1899,
-                tax_percent=Decimal("7.25"),
+                taxed=True,
                 discount_cents=200,
             ),
         ],
     )
+
+
+def lawn_rate(conn):
+    """A 7.25% rate for lawn_quote; its id."""
+    rate = TaxRate(BUSINESS, "Home county", [TaxPart("", Decimal("7.25"))])
+    return save_tax_rate(conn, rate).id
 
 
 def test_connect_twice_to_the_same_file(tmp_path):
@@ -216,7 +225,9 @@ def at(minute):
 
 
 def test_list_quotes_last_changed_first(conn):
-    first = save_new_quote(conn, lawn_quote(), numbers("Q-111-1111"), now=at(0))
+    first = save_new_quote(
+        conn, lawn_quote(lawn_rate(conn)), numbers("Q-111-1111"), now=at(0)
+    )
     save_new_quote(conn, make_quote(), numbers("Q-222-2222"), now=at(1))
     save_draft(conn, replace(first, notes="Changed"), now=at(2))
 
@@ -283,9 +294,10 @@ LAWN_TOTALS = QuoteTotals(
 
 def test_mark_a_new_draft_quoted(conn):
     quoted = mark_quoted(
-        conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+        conn, lawn_quote(lawn_rate(conn)), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
     )
     assert quoted.number == "Q-7KQ-M9XD"
+    assert (quoted.tax_name, quoted.tax_percent) == ("Home county", Decimal("7.25"))
     assert quoted.status is Status.QUOTED
     assert (quoted.issued_on, quoted.valid_until) == (ISSUED, VALID_UNTIL)
     assert quoted.frozen == LAWN_TOTALS
@@ -733,6 +745,70 @@ def test_delete_a_tax_rate_and_its_parts(conn):
 def test_a_tax_rate_needs_a_name_in_the_database(conn):
     with pytest.raises(sqlite3.IntegrityError):
         save_tax_rate(conn, home_county(name=""))
+
+
+def test_a_draft_follows_its_rate_as_it_changes(conn):
+    rate_id = lawn_rate(conn)
+    save_new_quote(conn, lawn_quote(rate_id), numbers("Q-7KQ-M9XD"))
+    [rate] = list_tax_rates(conn, BUSINESS)
+    save_tax_rate(conn, replace(rate, name="Home", parts=[TaxPart("", Decimal("10"))]))
+
+    draft = load_quote(conn, "Q-7KQ-M9XD")
+    assert (draft.tax_name, draft.tax_percent) == ("Home", Decimal("10"))
+    # The blade: $16.99 at 10% = $1.70 ($1.699).
+    assert list_quotes(conn, BUSINESS)[0].total_cents == 4500 + 6750 + 1699 + 170
+
+
+def test_a_quoted_quote_keeps_its_rate_as_it_was(conn):
+    rate_id = lawn_rate(conn)
+    mark_quoted(conn, lawn_quote(rate_id), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    [rate] = list_tax_rates(conn, BUSINESS)
+    save_tax_rate(conn, replace(rate, parts=[TaxPart("", Decimal("10"))]))
+
+    quoted = load_quote(conn, "Q-7KQ-M9XD")
+    assert quoted.tax_percent == Decimal("7.25")
+    assert quoted.frozen == LAWN_TOTALS
+
+
+def test_an_untaxed_quote_is_quoted_untaxed(conn):
+    quoted = mark_quoted(conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    loaded = load_quote(conn, "Q-7KQ-M9XD")
+    assert (loaded.tax_rate_id, loaded.tax_name, loaded.tax_percent) == (None, "", 0)
+    assert loaded.frozen.tax_cents == 0
+    assert loaded == quoted
+
+
+def test_a_rate_a_draft_uses_cant_be_deleted(conn):
+    rate_id = lawn_rate(conn)
+    save_new_quote(conn, lawn_quote(rate_id), numbers("Q-111-1111"))
+    save_new_quote(conn, lawn_quote(rate_id), numbers("Q-222-2222"))
+    with pytest.raises(RateInUse) as refused:
+        delete_tax_rate(conn, rate_id)
+    assert refused.value.drafts == 2
+    assert len(list_tax_rates(conn, BUSINESS)) == 1
+
+
+def test_a_rate_only_quoted_quotes_used_can_be_deleted(conn):
+    rate_id = lawn_rate(conn)
+    mark_quoted(conn, lawn_quote(rate_id), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    delete_tax_rate(conn, rate_id)
+
+    quoted = load_quote(conn, "Q-7KQ-M9XD")
+    assert quoted.tax_rate_id is None
+    assert (quoted.tax_name, quoted.tax_percent) == ("Home county", Decimal("7.25"))
+
+
+def test_a_revision_follows_the_rate_as_it_is_now(conn):
+    rate_id = lawn_rate(conn)
+    quoted = mark_quoted(
+        conn, lawn_quote(rate_id), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+    )
+    [rate] = list_tax_rates(conn, BUSINESS)
+    save_tax_rate(conn, replace(rate, parts=[TaxPart("", Decimal("10"))]))
+    save_revision(conn, revision_draft(quoted, 1))
+
+    revision = load_quote(conn, "Q-7KQ-M9XD")
+    assert (revision.tax_rate_id, revision.tax_percent) == (rate_id, Decimal("10"))
 
 
 def test_a_quote_needs_a_business(conn):

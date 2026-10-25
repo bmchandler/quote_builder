@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS quotes (
     issued_on   TEXT,
     valid_until TEXT,
     notes       TEXT    NOT NULL DEFAULT '',
+    -- The tax rate its taxed lines use; NULL for Untaxed. Deleting a
+    -- rate leaves a quoted quote its frozen copy below (the app refuses
+    -- while a draft uses it).
+    tax_rate_id INTEGER REFERENCES tax_rates (id) ON DELETE SET NULL,
     -- When last saved: UTC, ISO 8601 with the offset, shown in local time.
     updated_at  TEXT    NOT NULL,
     -- The foot's totals, stored once quoted (frozen) and shown from then
@@ -70,6 +74,9 @@ CREATE TABLE IF NOT EXISTS quotes (
     frozen_discount_cents INTEGER,
     frozen_tax_cents      INTEGER,
     frozen_total_cents    INTEGER,
+    -- The rate as it was when quoted ('' and '0' for Untaxed).
+    frozen_tax_name       TEXT,
+    frozen_tax_percent    TEXT,
     UNIQUE (number, revision),
     -- Only a draft goes without dates and frozen totals.
     CHECK (status = 'Draft' OR (issued_on IS NOT NULL
@@ -77,7 +84,9 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_items_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_discount_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_tax_cents IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_total_cents IS NULL))
+    CHECK ((status = 'Draft') = (frozen_total_cents IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_tax_name IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_tax_percent IS NULL))
 ) STRICT;
 
 -- At most one draft per quote number: a revision is worked on one at
@@ -107,7 +116,8 @@ CREATE TABLE IF NOT EXISTS line_items (
     unit_price_cents INTEGER NOT NULL,
     discount_cents   INTEGER,
     discount_percent TEXT,
-    tax_percent      TEXT    NOT NULL DEFAULT '0',
+    -- 1 if taxed at the quote's rate. STRICT has no boolean type.
+    taxed            INTEGER NOT NULL DEFAULT 0 CHECK (taxed IN (0, 1)),
     -- The line's figures once quoted, as for the quote's foot: all or none.
     frozen_amount_cents   INTEGER,
     frozen_discount_cents INTEGER,
