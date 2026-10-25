@@ -53,6 +53,22 @@ Future (not now):
   it and pick another rate, with a button to make the new rate first.
   The order matters: a user who moves drafts to a stand-in rate before
   the right one exists can lose track of which drafts to move again.
+- A tax rate changed since the last quote (noted 2026-10-25): a
+  revision draft takes its rate as it is now, so when that differs
+  from what the version before was quoted at, a banner near the top
+  says so ("Home county's rate changed since R1 was quoted: 7.25% to
+  7.5%"). No choice to keep the old rate: the customer is likely to
+  owe the tax in effect when the sale happens, so it's on the person
+  managing the quote to tell them. Whether Extend should say the
+  same, as an extended quote keeps its old rate, is to be settled.
+  With printing: a short note on the printout when the region's rate
+  changed since the previous quote or extension. To settle first:
+  what's usual when a rate changes after a quote is sent but while
+  it's still valid. Sales tax appears to be owed at the rate in effect
+  when the sale happens, not when it's quoted, with the seller owing
+  any shortfall; some states appear to have rules for contracts
+  signed before a change. Likely varies by state: check before
+  building.
 - A simple dashboard (quote counts, extensions, and the like): counts
   per business or pilot and in all, drafts, and metrics around
   extensions (noted 2026-10-24).
