@@ -68,10 +68,16 @@ Future (not now):
   when the sale happens, not when it's quoted, with the seller owing
   any shortfall; some states appear to have rules for contracts
   signed before a change. Likely varies by state: check before
-  building.
+  building. So the printout should also say that its tax is figured
+  at today's rates and may change if they do before the sale
+  (wording to settle); a final requote before the sale may be what
+  a careful business does.
 - A simple dashboard (quote counts, extensions, and the like): counts
   per business or pilot and in all, drafts, and metrics around
-  extensions (noted 2026-10-24).
+  extensions (noted 2026-10-24). Likely a section opened as Settings
+  is (noted 2026-10-25). Maybe, a ways out: a count of open quotes
+  whose tax rate has changed since they were quoted, with a way to
+  get to each, for calling customers ahead of the sale.
 - A time of day on the valid-through date, such as the end of office
   hours: "Valid through 11/18/2026 6:30 pm EST" (decided 2026-10-19).
   The zone label would follow the date (EST in winter, EDT in summer,
