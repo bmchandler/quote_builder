@@ -130,9 +130,15 @@ of one: a second copy drifts, and can mask a problem in this file.
 ### Wording and docs
 
 - On-screen wording the user dictates is used word for word (moving
-  line breaks to fit is fine). For a case it doesn't cover, ask with
-  concrete previews rather than writing new wording. Keep set phrases
-  the same across related cases: consistent beats precise-but-varying.
+  line breaks to fit is fine). For a case it doesn't cover, write
+  wording that fits, showing it when it's part of a design question.
+  Don't ask for sign-off on new wording or list it as open: no comment
+  means the user is rolling with it. They'll ask for a change after
+  some use, or for a list of the messages in a polish phase, to size
+  them up for cohesiveness at one go. Wording changed from what was
+  already on screen is different: say so when handing over, old and
+  new. Keep set phrases the same across related cases: consistent
+  beats precise-but-varying.
 - In docs, a reference to a section or file is a link to it:
   `[Your data](#your-data)`, `[DEVELOPMENT.md](DEVELOPMENT.md)`. Not
   needed for a file already linked earlier in the same paragraph.
