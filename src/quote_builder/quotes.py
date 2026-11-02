@@ -94,8 +94,8 @@ class Quote:
     tax_percent: Decimal = Decimal(0)
     frozen: QuoteTotals | None = None  # stored once quoted, as for lines
     extensions: list[Extension] = field(default_factory=list)  # oldest first
-    # Its customer, if any: a draft's as the customer is now; once
-    # quoted, the details as they were (kept as the tax rate's are).
+    # Its customer, if any: its own copy of the details, as typed or
+    # filled in from the business's customers (never with their id).
     customer: Customer | None = None
 
 
@@ -209,6 +209,5 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
         line_items=[replace(item, frozen=None) for item in quote.line_items],
         # The same rate, as it is now (filled in when it's shown).
         tax_rate_id=quote.tax_rate_id,
-        # The same customer; the form shows their details as they are now.
-        customer=quote.customer,
+        customer=quote.customer,  # the quote's own copy, not the list's
     )

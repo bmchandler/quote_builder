@@ -1,6 +1,13 @@
+from dataclasses import replace
+
 import pytest
 
-from quote_builder.customers import Customer, check_customer, same_name
+from quote_builder.customers import (
+    Customer,
+    check_customer,
+    find_customers,
+    is_exact_duplicate,
+)
 
 BUSINESS = 1
 
@@ -26,9 +33,43 @@ def test_a_customer_needs_a_name():
     check_customer(Customer(BUSINESS, "Jane Doe"))
 
 
-def test_same_name_in_any_case_and_spacing():
-    jane = Customer(BUSINESS, "Jane Doe", id=1)
-    other_jane = Customer(BUSINESS, "JANE  DOE", id=2)
-    sam = Customer(BUSINESS, "Sam Example", id=3)
-    assert same_name([jane, other_jane, sam], " jane doe ") == [jane, other_jane]
-    assert same_name([jane, sam], "Jane Doering") == []
+def test_blank_means_nothing_entered():
+    assert Customer(BUSINESS).is_blank
+    assert not Customer(BUSINESS, name="Jane Doe").is_blank
+    assert not Customer(BUSINESS, email="jane@example.com").is_blank
+    assert not Customer(BUSINESS, phone="555-0134").is_blank
+    assert not Customer(BUSINESS, address="12 Oak St").is_blank
+
+
+JANE = Customer(BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St", 1)
+SAM = Customer(BUSINESS, "Sam Example", "sam@test.example", "555-0177", "48 Elm Rd", 2)
+
+
+@pytest.mark.parametrize("text", ["JANE", "@example.com", "0134", "oak st", " doe "])
+def test_find_matches_any_detail_in_any_case(text):
+    assert find_customers([JANE, SAM], text) == [JANE]
+
+
+def test_find_with_nothing_typed_gives_them_all():
+    assert find_customers([JANE, SAM], "  ") == [JANE, SAM]
+
+
+def test_find_can_find_nobody():
+    assert find_customers([JANE, SAM], "nobody") == []
+
+
+def test_all_details_matching_is_an_exact_duplicate():
+    assert is_exact_duplicate(replace(JANE, id=None), [SAM, JANE])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"name": "jane doe"},
+        {"email": "doe@example.com"},
+        {"phone": "555-0199"},
+        {"address": "48 Elm Rd"},
+    ],
+)
+def test_any_detail_differing_isnt_an_exact_duplicate(change):
+    assert not is_exact_duplicate(replace(JANE, id=None, **change), [SAM, JANE])

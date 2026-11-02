@@ -43,16 +43,16 @@ CREATE TABLE IF NOT EXISTS tax_rate_parts (
     UNIQUE (tax_rate_id, position)
 ) STRICT;
 
--- A business's customers, kept for the next job.
+-- A business's saved customers, its regulars mostly. A quote copies what it
+-- needs, so nothing points here and a customer can always be changed or
+-- deleted, as with the catalog.
 CREATE TABLE IF NOT EXISTS customers (
     id          INTEGER PRIMARY KEY,
     business_id INTEGER NOT NULL REFERENCES businesses (id),
     name        TEXT    NOT NULL CHECK (name != ''),
     email       TEXT    NOT NULL DEFAULT '',
     phone       TEXT    NOT NULL DEFAULT '',
-    address     TEXT    NOT NULL DEFAULT '',  -- as typed, line breaks and all
-    -- For quotes' foreign key below, which needs a unique key to point at.
-    UNIQUE (business_id, id)
+    address     TEXT    NOT NULL DEFAULT ''   -- as typed, line breaks and all
 ) STRICT;
 
 -- A business's services and parts. A line copies what it needs, so nothing
@@ -88,9 +88,6 @@ CREATE TABLE IF NOT EXISTS quotes (
     -- rate leaves a quoted quote its frozen copy below (the app refuses
     -- while a draft uses it).
     tax_rate_id INTEGER REFERENCES tax_rates (id) ON DELETE SET NULL,
-    -- Its customer, if any. A quoted quote keeps it too, so a customer
-    -- with quotes can't be deleted (no ON DELETE: the database refuses).
-    customer_id INTEGER,
     -- When last saved: UTC, ISO 8601 with the offset, shown in local time.
     updated_at  TEXT    NOT NULL,
     -- The foot's totals, stored once quoted (frozen) and shown from then
@@ -102,17 +99,13 @@ CREATE TABLE IF NOT EXISTS quotes (
     -- The rate as it was when quoted ('' and '0' for Untaxed).
     frozen_tax_name       TEXT,
     frozen_tax_percent    TEXT,
-    -- The customer's details as they were when quoted ('' for none), so
-    -- fixing them later changes only drafts and later quotes.
-    frozen_customer_name    TEXT,
-    frozen_customer_email   TEXT,
-    frozen_customer_phone   TEXT,
-    frozen_customer_address TEXT,
+    -- Its customer's details, its own copy, as typed or filled in from
+    -- the customers table ('' for none). Nothing points at that table.
+    customer_name    TEXT NOT NULL DEFAULT '',
+    customer_email   TEXT NOT NULL DEFAULT '',
+    customer_phone   TEXT NOT NULL DEFAULT '',
+    customer_address TEXT NOT NULL DEFAULT '',
     UNIQUE (number, revision),
-    -- Both columns: a quote's customer is one of its own business's. (A
-    -- NULL customer_id skips the check.)
-    FOREIGN KEY (business_id, customer_id)
-        REFERENCES customers (business_id, id),
     -- Only a draft goes without dates and frozen totals.
     CHECK (status = 'Draft' OR (issued_on IS NOT NULL
                                 AND valid_until IS NOT NULL)),
@@ -121,24 +114,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_tax_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_total_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_tax_name IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_tax_percent IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_customer_name IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_customer_email IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_customer_phone IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_customer_address IS NULL))
+    CHECK ((status = 'Draft') = (frozen_tax_percent IS NULL))
 ) STRICT;
-
--- Each quote's customer details as it shows them: a quoted one's as
--- kept, a draft's as they are now. Only quotes with a customer. (A
--- view is a stored SELECT, used like a table; to change one, drop it
--- first, as IF NOT EXISTS leaves an old one be.)
-CREATE VIEW IF NOT EXISTS quote_customers AS
-    SELECT q.id AS quote_id,
-           coalesce(q.frozen_customer_name, c.name) AS name,
-           coalesce(q.frozen_customer_email, c.email) AS email,
-           coalesce(q.frozen_customer_phone, c.phone) AS phone,
-           coalesce(q.frozen_customer_address, c.address) AS address
-    FROM quotes AS q JOIN customers AS c ON c.id = q.customer_id;
 
 -- At most one draft per quote number: a revision is worked on one at
 -- a time. (A partial index: only rows matching WHERE are indexed.)

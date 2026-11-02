@@ -1,4 +1,5 @@
-"""A business's customers, kept for the next job."""
+"""A business's saved customers, its regulars mostly, and a quote's copy
+of a customer's details."""
 
 from dataclasses import dataclass
 
@@ -10,7 +11,7 @@ class Customer:
     email: str = ""
     phone: str = ""
     address: str = ""  # one field, as typed, line breaks and all
-    id: int | None = None  # None until stored
+    id: int | None = None  # None until stored; always None on a quote
 
     @property
     def details(self) -> str:
@@ -22,20 +23,38 @@ class Customer:
         parts = [address, self.phone, self.email]
         return " · ".join(part for part in parts if part.strip())
 
+    @property
+    def is_blank(self) -> bool:
+        """True if nothing's been entered, so a quote has no customer."""
+        return not (self.name or self.email or self.phone or self.address)
+
 
 def check_customer(customer: Customer) -> None:
     """Raises ValueError, with a message for the user, if `customer`
-    can't be saved."""
+    can't be saved to the list. (A quote's copy needs nothing.)"""
     if not customer.name:
         raise ValueError("A customer needs a name")
 
 
-def same_name(customers: list[Customer], name: str) -> list[Customer]:
-    """The customers named `name`, in any case and spacing: a likely
-    duplicate of a new one."""
+def is_exact_duplicate(customer: Customer, customers: list[Customer]) -> bool:
+    """True if one of `customers` has exactly these details, case included:
+    the one duplicate that can't be two different people."""
 
-    def key(text: str) -> str:
-        # casefold: lower() for comparing, which also folds ß to ss.
-        return " ".join(text.split()).casefold()
+    def details(c: Customer) -> tuple[str, str, str, str]:
+        return (c.name, c.email, c.phone, c.address)
 
-    return [customer for customer in customers if key(customer.name) == key(name)]
+    return any(details(customer) == details(other) for other in customers)
+
+
+def find_customers(customers: list[Customer], text: str) -> list[Customer]:
+    """The customers whose name, email, phone, or address hold `text`,
+    in any case; all of them if it's blank."""
+    wanted = text.strip().casefold()
+    return [
+        customer
+        for customer in customers
+        if any(
+            wanted in part.casefold()
+            for part in (customer.name, customer.email, customer.phone, customer.address)
+        )
+    ]

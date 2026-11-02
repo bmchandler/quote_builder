@@ -316,6 +316,25 @@ def add_customer(conn: sqlite3.Connection, customer: Customer) -> Customer:
     return replace(customer, id=row["id"])
 
 
+def update_customer(conn: sqlite3.Connection, customer: Customer) -> None:
+    """Store a customer's changed details. Quotes keep their own copies."""
+    with conn:
+        conn.execute(
+            """
+            UPDATE customers
+            SET name = :name, email = :email, phone = :phone, address = :address
+            WHERE id = :id
+            """,
+            vars(customer),
+        )
+
+
+def delete_customer(conn: sqlite3.Connection, customer_id: int) -> None:
+    """Delete a customer. Quotes keep their own copies."""
+    with conn:
+        conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+
+
 def list_catalog_items(conn: sqlite3.Connection, business_id: int) -> list[CatalogItem]:
     """A business's catalog by description, in any case."""
     rows = conn.execute(
@@ -361,21 +380,6 @@ def save_catalog_item(conn: sqlite3.Connection, item: CatalogItem) -> CatalogIte
 def delete_catalog_item(conn: sqlite3.Connection, item_id: int) -> None:
     with conn:
         conn.execute("DELETE FROM catalog_items WHERE id = ?", (item_id,))
-
-
-def _customers_now(
-    conn: sqlite3.Connection, customer_ids: list[int | None]
-) -> dict[int, Customer]:
-    """These customers as they are now, by id: what a draft shows."""
-    ids = sorted({customer_id for customer_id in customer_ids if customer_id is not None})
-    if not ids:
-        return {}
-    placeholders = ", ".join("?" * len(ids))
-    rows = conn.execute(
-        f"SELECT {_CUSTOMER_COLUMNS} FROM customers WHERE id IN ({placeholders})",
-        ids,
-    ).fetchall()
-    return {row["id"]: Customer(**dict(row)) for row in rows}
 
 
 def save_new_quote(
@@ -457,11 +461,9 @@ def mark_quoted(
     IntegrityError as save_revision does; `draw_number` and `now` as for
     save_new_quote.
     """
-    # The tax rate and customer as they are now are the ones frozen,
-    # whatever the quote was shown with.
-    taxed = _with_customer(
-        _with_rate(quote, _rates_now(conn, [quote.tax_rate_id])), conn
-    )
+    # The tax rate as it is now is the one frozen, whatever the quote was
+    # shown with.
+    taxed = _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
     quoted = freeze(
         replace(
             taxed, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
@@ -516,11 +518,10 @@ def _overwrite_draft(
             frozen_discount_cents = :discount_cents,
             frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents,
             frozen_tax_name = :tax_name, frozen_tax_percent = :tax_percent,
-            customer_id = :customer_id,
-            frozen_customer_name = :customer_name,
-            frozen_customer_email = :customer_email,
-            frozen_customer_phone = :customer_phone,
-            frozen_customer_address = :customer_address
+            customer_name = :customer_name,
+            customer_email = :customer_email,
+            customer_phone = :customer_phone,
+            customer_address = :customer_address
         WHERE number = :number AND revision = :revision AND status = 'Draft'
         RETURNING id
         """,
@@ -619,13 +620,12 @@ _QUOTE_COLUMNS = """
     business_id, number, revision, status, issued_on, valid_until, notes,
     tax_rate_id, updated_at, frozen_items_cents, frozen_discount_cents,
     frozen_tax_cents, frozen_total_cents, frozen_tax_name, frozen_tax_percent,
-    customer_id, frozen_customer_name, frozen_customer_email,
-    frozen_customer_phone, frozen_customer_address
+    customer_name, customer_email, customer_phone, customer_address
 """
 _QUOTE_VALUES = """
     :business_id, :number, :revision, :status, :issued_on, :valid_until,
     :notes, :tax_rate_id, :updated_at, :items_cents, :discount_cents,
-    :tax_cents, :total_cents, :tax_name, :tax_percent, :customer_id,
+    :tax_cents, :total_cents, :tax_name, :tax_percent,
     :customer_name, :customer_email, :customer_phone, :customer_address
 """
 
@@ -634,14 +634,6 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
     """The quote's columns, by name, for INSERT and UPDATE."""
     frozen = quote.frozen
     customer = quote.customer
-
-    def kept(detail: str) -> str | None:
-        """A customer detail as kept once quoted ('' without a customer);
-        None for a draft, which shows the customer as they are now."""
-        if not frozen:
-            return None
-        return getattr(customer, detail) if customer else ""
-
     return {
         "business_id": quote.business_id,
         "number": number,
@@ -660,11 +652,10 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         # draft's follow the rate as it is now.
         "tax_name": quote.tax_name if frozen else None,
         "tax_percent": str(quote.tax_percent) if frozen else None,
-        "customer_id": customer.id if customer else None,
-        "customer_name": kept("name"),
-        "customer_email": kept("email"),
-        "customer_phone": kept("phone"),
-        "customer_address": kept("address"),
+        "customer_name": customer.name if customer else "",
+        "customer_email": customer.email if customer else "",
+        "customer_phone": customer.phone if customer else "",
+        "customer_address": customer.address if customer else "",
     }
 
 
@@ -711,14 +702,6 @@ def _with_rate(quote: Quote, rates: dict[int, TaxRate]) -> Quote:
     return replace(quote, tax_name=rate.name, tax_percent=rate.percent)
 
 
-def _with_customer(quote: Quote, conn: sqlite3.Connection) -> Quote:
-    """A draft with its customer as they are now (None without one)."""
-    if quote.customer is None:
-        return quote
-    customers = _customers_now(conn, [quote.customer.id])
-    return replace(quote, customer=customers.get(quote.customer.id))
-
-
 def list_quotes(
     conn: sqlite3.Connection, business_id: int, search: str = ""
 ) -> list[QuoteSummary]:
@@ -727,8 +710,7 @@ def list_quotes(
 
     A quote matches if any version's number, notes, line description,
     or customer's details (name, email, phone, address) hold the search
-    text, in any case: a quoted version's details as kept, a draft's as
-    they are now.
+    text, in any case.
     """
     # In LIKE, % and _ are wildcards: escape them (and the escape
     # character itself) so they match only themselves.
@@ -752,12 +734,10 @@ def list_quotes(
                      OR EXISTS (SELECT 1 FROM line_items
                                 WHERE quote_id = v.id
                                   AND description LIKE :pattern ESCAPE '\')
-                     OR EXISTS (SELECT 1 FROM quote_customers
-                                WHERE quote_id = v.id
-                                  AND (name LIKE :pattern ESCAPE '\'
-                                       OR email LIKE :pattern ESCAPE '\'
-                                       OR phone LIKE :pattern ESCAPE '\'
-                                       OR address LIKE :pattern ESCAPE '\'))))
+                     OR v.customer_name LIKE :pattern ESCAPE '\'
+                     OR v.customer_email LIKE :pattern ESCAPE '\'
+                     OR v.customer_phone LIKE :pattern ESCAPE '\'
+                     OR v.customer_address LIKE :pattern ESCAPE '\'))
         ORDER BY q.updated_at DESC, q.id DESC
         """,
         {"business_id": business_id, "pattern": pattern},
@@ -779,8 +759,8 @@ def list_versions(conn: sqlite3.Connection, number: str) -> list[QuoteSummary]:
     return _summaries(conn, rows)
 
 
-# A customer's details search looks in, in order: column names here
-# and in the quote_customers view, from our own code, never the user's.
+# A customer's details search looks in, in order: column names, from our
+# own code, never the user's.
 CUSTOMER_DETAILS = ("name", "email", "phone", "address")
 
 
@@ -801,9 +781,10 @@ def search_texts(
     details = " UNION ALL ".join(
         f"""
         SELECT q.number AS number, q.revision AS revision,
-               'customer' AS field, {position} AS position, c.{column} AS text
-        FROM quotes AS q JOIN quote_customers AS c ON c.quote_id = q.id
-        WHERE q.number IN ({placeholders}) AND c.{column} != ''
+               'customer' AS field, {position} AS position,
+               q.customer_{column} AS text
+        FROM quotes AS q
+        WHERE q.number IN ({placeholders}) AND q.customer_{column} != ''
         """
         for position, column in enumerate(CUSTOMER_DETAILS)
     )
@@ -835,7 +816,7 @@ def search_texts(
 _SUMMARY_COLUMNS = """
     q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
     q.valid_until, q.frozen_total_cents, q.tax_rate_id,
-    (SELECT name FROM quote_customers WHERE quote_id = q.id) AS customer_name
+    nullif(q.customer_name, '') AS customer_name
 """
 
 
@@ -908,9 +889,8 @@ def load_quote(
         SELECT id, business_id, number, revision, status, issued_on,
                valid_until, notes, tax_rate_id, frozen_items_cents,
                frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
-               frozen_tax_name, frozen_tax_percent, customer_id,
-               frozen_customer_name, frozen_customer_email,
-               frozen_customer_phone, frozen_customer_address
+               frozen_tax_name, frozen_tax_percent, customer_name,
+               customer_email, customer_phone, customer_address
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -921,6 +901,13 @@ def load_quote(
     ).fetchone()
     if row is None:
         return None
+    customer = Customer(
+        business_id=row["business_id"],
+        name=row["customer_name"],
+        email=row["customer_email"],
+        phone=row["customer_phone"],
+        address=row["customer_address"],
+    )
     quote = Quote(
         business_id=row["business_id"],
         number=row["number"],
@@ -942,29 +929,15 @@ def load_quote(
             )
         ),
         extensions=_extensions_of(conn, row["id"]),
+        customer=None if customer.is_blank else customer,
     )
     if row["frozen_tax_percent"] is None:
-        # A draft: the rate and customer as they are now.
-        customers = _customers_now(conn, [row["customer_id"]])
-        return _with_rate(
-            replace(quote, customer=customers.get(row["customer_id"])),
-            _rates_now(conn, [quote.tax_rate_id]),
-        )
-    customer = None
-    if row["customer_id"] is not None:
-        customer = Customer(
-            business_id=row["business_id"],
-            name=row["frozen_customer_name"],
-            email=row["frozen_customer_email"],
-            phone=row["frozen_customer_phone"],
-            address=row["frozen_customer_address"],
-            id=row["customer_id"],
-        )
+        # A draft: the rate as it is now.
+        return _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
     return replace(
         quote,
         tax_name=row["frozen_tax_name"],
         tax_percent=Decimal(row["frozen_tax_percent"]),
-        customer=customer,
     )
 
 

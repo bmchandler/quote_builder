@@ -36,6 +36,13 @@ Out of scope:
   any tracking at that level (decided 2026-11-02). The app builds
   quotes to give to customers; what happens after is up to the user,
   whose way of handling acceptance could be anything.
+- Checking for likely duplicate customers, or merging them (decided
+  2026-11-02). Two Jane Does, or a shared phone or address, may well
+  be different people, and one person may use two emails, so a check
+  can only guess, and its false alarms grow with the list. A duplicate
+  costs little, as the details tell them apart. The exception: a
+  customer identical to another in every field, which can't be told
+  apart and adds nothing, is refused.
 
 Future (not now):
 
@@ -58,13 +65,7 @@ Future (not now):
   settled with it (noted 2026-11-01): a line has no unit today, and
   a field for one is tight in a line's row at the window's width.
 - A banner image at the top left instead of the business's name.
-- Customers in Settings, or a view like it (noted 2026-11-01): not
-  for adding (that's done from a quote), but for fixing details,
-  deleting, and merging duplicates. Fixing changes drafts and later
-  quotes, never a quoted one (see Data). Deleting a customer with
-  quotes is refused.
-- Archiving or purging old quotes (noted 2026-11-01), which would
-  then let customers left without quotes be cleaned up safely.
+- Archiving or purging old quotes (noted 2026-11-01).
   Brainstorm, nothing decided (noted 2026-11-02): an Archived area to
   search, holding each quote as its printed or PDF version, with
   export and delete: delete anything before a certain year, say, or
@@ -131,13 +132,15 @@ are worked out with `Decimal` and rounded to the cent where shown.
   given; to give a customer new details, revise the quote.
 - **Customer** (decided 2026-11-01; "customer", not "client", which
   reads as consulting, while customer is understood about
-  everywhere): name, email, phone, address (one field, as typed). A
-  name is needed; the rest is optional. Kept per business for the
-  next job. A draft shows its customer's details as they are now;
-  marking it Quoted keeps a copy of them with the quote, as with its
-  tax rate, so fixing a customer's details later changes only drafts
-  and later quotes, never one already quoted. A customer with quotes
-  can't be deleted (the database refuses).
+  everywhere): name, email, phone, address (one field, as typed).
+  Reworked 2026-11-02: a quote's customer exists to print its details
+  and change them for the print, so every quote holds its own copy,
+  all of it optional, as a line holds its catalog item's. Details are
+  mostly typed quote by quote. A business's saved customers are only
+  a shortcut for filling those in, meant for regulars, though a user
+  may save everyone; a saved customer needs a name. Nothing points at
+  one, so changing or deleting it never touches a quote, draft or
+  quoted, and a quote changing its copy never touches the list.
 - **Tax rate**: a name (`Home county`) and its parts, each a name and a
   percent (State 4.75%, County 1.5%, City 1%); its combined rate is
   their sum.
@@ -301,9 +304,10 @@ Built (as of 2026-11-01), each with tests:
   valid, Extend's days, and tax rates (each its parts, one the
   default) so far. Every quote belongs to one, and
   every version of it to the same one. The business picked last is
-  remembered (decided 2026-10-24), so the app opens on it. Customers
-  (customers.py), each a business's, and a quote's customer. Catalog
-  items (catalog.py), each a business's.
+  remembered (decided 2026-10-24), so the app opens on it. Saved
+  customers (customers.py), each a business's, and a quote's own copy
+  of its customer's details. Catalog items (catalog.py), each a
+  business's.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -319,9 +323,9 @@ Built (as of 2026-11-01), each with tests:
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
     you type, matches the number, the notes, any line's description,
-    or the customer's name, email, phone, or address (decided
-    2026-11-01; a quoted version's as kept, a draft's as they are
-    now), in any case, in any version (decided 2026-10-19). The list
+    or the customer's name, email, phone, or address on the quote
+    (decided 2026-11-01), in any case, in any version (decided
+    2026-10-19). The list
     and search cover only the business shown (decided 2026-10-20),
     and a new quote belongs to it. The list scrolls on its own, below Search
     and New Quote.
@@ -379,6 +383,20 @@ Built (as of 2026-11-01), each with tests:
     clicking one opens a dialog: Description, Default price, Unit (its
     example "hour, each, flat, etc."), and Taxable. It saves on its
     own, as a tax rate's does; an item already saved has Delete.
+  - Customers (decided 2026-11-02): in Settings' side panel, below
+    Catalog, a Customers button opens, on the right, the customers of
+    the business picked in the list, headed "Customers: John Doe's Lawn
+    Service", as Catalog does. It's off for a new business until saved,
+    and clicking a business goes back to its settings. One row per
+    customer, by name in any case, with their details below, and "Add
+    customer…". Adding or clicking one opens a dialog, "New customer"
+    or "Edit customer": Name (needed), Email, Phone, Address. It saves
+    on its own, as a catalog item's does; a customer already saved has
+    Delete. Nothing points at a saved customer, so neither changes any
+    quote. Adding or editing a customer so they match another in every
+    field, case included once spaces are tidied, is refused, with the
+    dialog left open: "Jane Doe already exists with these exact
+    details". That's the only duplicate check (see Scope).
   - Add from catalog (decided 2026-11-01): once the business has an
     item, a field beside a draft's Add Line. Typing narrows the items
     by description, price, or unit, each shown as its description with
@@ -421,23 +439,27 @@ Built (as of 2026-11-01), each with tests:
     draft opens in the form (description, quantity, unit price,
     discount, Tax, and notes, with totals updating as you type); Save
     saves it. Any other status opens read-only.
-  - Customer on a quote (decided 2026-11-01): a draft's "Customer",
-    above Tax rate, is optional, even to mark it Quoted. Typing in it
-    narrows the business's customers to those whose name, address,
-    phone, or email holds the text, each shown as its name with those
-    details below ("12 Oak St · 555-0134 · jane@example.com"), so
-    several Jane Does can be told apart. Below the choices, "Add
-    customer "jane d"…" ("Add customer…" with nothing typed) opens a
-    dialog, "New customer": Name (the typed text to start), Email,
-    Phone, Address. It saves on its own, as a tax rate does, and the
-    new customer is picked. A name the business already has, in any
-    case or spacing, asks first: "There's already a Jane Doe (12 Oak
-    St · 555-0134). Add another anyway?", with "Use that one" and
-    "Add another" (with several: "There are already 2 customers named
-    Jane Doe.", and Add another only). The picked customer's details
-    show under the field. Changing the customer counts as a change
-    for "Discard unsaved changes?". A quoted quote shows "Customer:
-    Jane Doe" with the details kept, under its dates.
+  - Customer on a quote (decided 2026-11-02, replacing a picker tied
+    to saved customers): a draft's "Customer", above Tax rate, is Name
+    and Phone, then Email and Address, in two columns, each plain text
+    and optional, even to mark it Quoted. Changes count for "Discard
+    unsaved changes?". A quoted quote shows "Customer: Jane Doe" with
+    the details under it, below its dates; without a name, just the
+    details. A revision starts from the version before's details.
+  - Find customer (decided 2026-11-02): once the business has a saved
+    customer, a button beside the "Customer" heading opens a dialog,
+    "Find customer": Search, narrowing as you type by name, email,
+    phone, or address, in any case, each shown as its name with its
+    details below, so several Jane Does can be told apart ("No
+    customers match" when none do). Clicking one closes it and fills
+    all four fields, replacing what's there, even with blanks; Cancel
+    leaves them. Search is its own dialog, not suggestions in the Name
+    field, so typing a walk-in's name stays plain typing.
+  - Add to Customers (decided 2026-11-02): once Name holds text, a
+    circled plus shows at its right, with "Add to Customers" on
+    mouse-over. Tab skips it. Clicking it opens the "New customer"
+    dialog filled in from the quote. Saving adds them, ready to find;
+    it doesn't count as a change to the quote.
   - Tax on a quote (decided 2026-10-25): a draft's "Tax rate", above
     its lines, lists "Untaxed" and the business's rates ("Home county
     · 7.25%"), starting on the default (Untaxed without one). Each
@@ -539,9 +561,8 @@ Built (as of 2026-11-01), each with tests:
     differently. In a draft's form, an input can't highlight part of
     its text, so each description or notes field holding the term is
     tinted pale amber instead, following the search and the typing,
-    and the Customer field when the customer's name or details hold
-    it (decided 2026-11-01). That way the user needn't wonder whether
-    the draft holds the term.
+    and each customer field too (decided 2026-11-02). That way the
+    user needn't wonder whether the draft holds the term.
   - Older versions (decided 2026-10-20): any version but the newest,
     however it was opened, shows an amber banner under its heading:
     "This is an older version. R2 (Draft) is the newest.", with "Go
@@ -553,8 +574,7 @@ Built (as of 2026-11-01), each with tests:
 
 Next, in order (decided 2026-11-02):
 
-1. Customer edit and merge (see Future: Customers in Settings).
-2. Duplicating a quote.
+1. Duplicating a quote.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

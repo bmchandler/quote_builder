@@ -239,7 +239,7 @@ of one: a second copy drifts, and can mask a problem in this file.
   a tooltip can aim at the text alone. A button in a field's `append`
   slot is in the Tab order unless given `tabindex="-1"`.
   A select's typing filter (`with_input`) matches the choices'
-  labels in the browser; the Customer field packs name and details
+  labels in the browser; Add from catalog packs description and price
   into each label, on two lines, and draws them with slot templates.
   `ui.html` cleans its HTML with DOMPurify (`sanitize=True`, the
   default), which keeps `<mark>` and `class`; escape user text first

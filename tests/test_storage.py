@@ -31,6 +31,7 @@ from quote_builder.storage import (
     connect,
     current_business,
     delete_catalog_item,
+    delete_customer,
     list_catalog_items,
     save_catalog_item,
     delete_tax_rate,
@@ -50,6 +51,7 @@ from quote_builder.storage import (
     save_revision,
     save_tax_rate,
     search_texts,
+    update_customer,
 )
 
 
@@ -854,13 +856,9 @@ def jane(conn, **changes):
     return add_customer(conn, replace(customer, **changes))
 
 
-def fix_customer(conn, customer_id, **columns):
-    """Change a customer's details, as Settings will (not built yet)."""
-    for column, value in columns.items():
-        with conn:
-            conn.execute(
-                f"UPDATE customers SET {column} = ? WHERE id = ?", (value, customer_id)
-            )
+def on_quote(customer):
+    """A customer as a quote holds them: its own copy, with no id."""
+    return replace(customer, id=None)
 
 
 def test_customers_listed_by_name_per_business(conn):
@@ -869,6 +867,27 @@ def test_customers_listed_by_name_per_business(conn):
     acme = add_business(conn, Business(name="Acme"))
     add_customer(conn, Customer(acme.id, "Acme's customer"))
     assert list_customers(conn, BUSINESS) == [doe, sam]
+
+
+def test_update_a_customer(conn):
+    doe = jane(conn)
+    other = add_customer(conn, Customer(BUSINESS, "Sam Example"))
+    changed = replace(doe, name="Jane Smith", phone="555-0199")
+    update_customer(conn, changed)
+    assert list_customers(conn, BUSINESS) == [changed, other]
+
+
+def test_delete_a_customer(conn):
+    doe = jane(conn)
+    delete_customer(conn, doe.id)
+    assert list_customers(conn, BUSINESS) == []
+
+
+def test_a_quote_keeps_its_copy_when_a_customer_is_deleted(conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, make_quote(customer=doe), numbers("Q-7KQ-M9XD"))
+    delete_customer(conn, doe.id)
+    assert load_quote(conn, saved.number).customer == on_quote(doe)
 
 
 def test_catalog_listed_by_description_per_business(conn):
@@ -907,18 +926,26 @@ def test_a_customer_needs_a_name(conn):
         add_customer(conn, Customer(BUSINESS))
 
 
-def test_a_draft_shows_its_customer_as_they_are_now(conn):
+def test_a_draft_keeps_its_own_copy_of_the_customer(conn):
     doe = jane(conn)
     saved = save_new_quote(conn, make_quote(customer=doe), numbers("Q-7KQ-M9XD"))
-    assert load_quote(conn, saved.number).customer == doe
+    assert load_quote(conn, saved.number).customer == on_quote(doe)
 
-    fix_customer(conn, doe.id, phone="555-0199")
-    assert load_quote(conn, saved.number).customer.phone == "555-0199"
+    update_customer(conn, replace(doe, phone="555-0199"))
+    assert load_quote(conn, saved.number).customer == on_quote(doe)
     [summary] = list_quotes(conn, BUSINESS)
     assert summary.customer_name == "Jane Doe"
 
 
-def test_quoted_keeps_the_customer_as_they_were(conn):
+def test_a_saved_draft_can_change_its_copy(conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, make_quote(customer=doe), numbers("Q-7KQ-M9XD"))
+    changed = replace(on_quote(doe), address="48 Elm Rd")
+    save_draft(conn, replace(saved, customer=changed))
+    assert load_quote(conn, saved.number).customer == changed
+
+
+def test_quoted_keeps_its_copy_of_the_customer(conn):
     doe = jane(conn)
     mark_quoted(
         conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
@@ -931,26 +958,23 @@ def test_quoted_keeps_the_customer_as_they_were(conn):
         numbers("Q-8AB-C2DE"),
     )
 
-    fix_customer(conn, doe.id, name="Jane Smith", address="48 Elm Rd")
-    kept = load_quote(conn, quoted.number).customer
-    assert (kept.id, kept.name, kept.address) == (doe.id, "Jane Doe", "12 Oak St")
-    assert [s.customer_name for s in list_quotes(conn, BUSINESS)] == [
-        "Jane Doe",
-        None,
-    ]
+    update_customer(conn, replace(doe, name="Jane Smith", address="48 Elm Rd"))
+    assert load_quote(conn, quoted.number).customer == on_quote(doe)
+    assert sorted(
+        (s.customer_name or "" for s in list_quotes(conn, BUSINESS))
+    ) == ["", "Jane Doe"]
     assert load_quote(conn, "Q-7KQ-M9XD").customer is None
 
 
-def test_mark_quoted_keeps_the_customer_as_they_are_now(conn):
+def test_mark_quoted_keeps_the_copy_the_form_had(conn):
     doe = jane(conn)
     saved = save_new_quote(conn, replace(lawn_quote(), customer=doe))
-    fix_customer(conn, doe.id, phone="555-0199")
-    # The quote as the form had it, before the fix.
+    update_customer(conn, replace(doe, phone="555-0199"))
     mark_quoted(conn, saved, ISSUED, VALID_UNTIL)
-    assert load_quote(conn, saved.number).customer.phone == "555-0199"
+    assert load_quote(conn, saved.number).customer.phone == "555-0134"
 
 
-def test_a_revision_keeps_the_customer_as_they_are_now(conn):
+def test_a_revision_keeps_the_copy_of_the_version_before(conn):
     doe = jane(conn)
     quoted = mark_quoted(
         conn,
@@ -959,26 +983,24 @@ def test_a_revision_keeps_the_customer_as_they_are_now(conn):
         VALID_UNTIL,
         numbers("Q-7KQ-M9XD"),
     )
-    fix_customer(conn, doe.id, name="Jane Smith")
+    update_customer(conn, replace(doe, name="Jane Smith"))
     save_revision(conn, revision_draft(quoted, 1))
 
-    revision = load_quote(conn, "Q-7KQ-M9XD")
-    assert (revision.customer.id, revision.customer.name) == (doe.id, "Jane Smith")
-    assert load_quote(conn, "Q-7KQ-M9XD", 0).customer.name == "Jane Doe"
+    assert load_quote(conn, "Q-7KQ-M9XD").customer.name == "Jane Doe"
 
 
-def test_a_quotes_customer_is_its_own_businesss(conn):
-    acme = add_business(conn, Business(name="Acme"))
-    theirs = add_customer(conn, Customer(acme.id, "Acme's customer"))
-    with pytest.raises(sqlite3.IntegrityError):
-        save_new_quote(conn, make_quote(customer=theirs))
+def test_a_customer_without_a_name_can_be_on_a_quote(conn):
+    saved = save_new_quote(
+        conn, make_quote(customer=Customer(BUSINESS, phone="555-0134"))
+    )
+    assert load_quote(conn, saved.number).customer.phone == "555-0134"
+    [summary] = list_quotes(conn, BUSINESS)
+    assert summary.customer_name is None  # so the row shows its first line
 
 
-def test_a_customer_with_quotes_cant_be_deleted(conn):
-    doe = jane(conn)
-    save_new_quote(conn, make_quote(customer=doe))
-    with pytest.raises(sqlite3.IntegrityError), conn:
-        conn.execute("DELETE FROM customers WHERE id = ?", (doe.id,))
+def test_a_quote_without_a_customer_loads_without_one(conn):
+    saved = save_new_quote(conn, make_quote())
+    assert load_quote(conn, saved.number).customer is None
 
 
 @pytest.mark.parametrize("search", ["JANE", "example.com", "0134", "oak st"])
@@ -989,16 +1011,15 @@ def test_search_matches_the_customers_details(conn, search):
     assert found.customer_name == "Jane Doe"
 
 
-def test_search_matches_a_quoted_customer_as_kept(conn):
+def test_search_matches_a_quotes_own_copy(conn):
     doe = jane(conn)
     mark_quoted(
         conn, replace(lawn_quote(), customer=doe), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
     )
-    draft = save_new_quote(conn, make_quote(customer=doe), numbers("Q-8AB-C2DE"))
-    fix_customer(conn, doe.id, phone="555-0199")
+    update_customer(conn, replace(doe, phone="555-0199"))
 
     assert [s.number for s in list_quotes(conn, BUSINESS, "0134")] == ["Q-7KQ-M9XD"]
-    assert [s.number for s in list_quotes(conn, BUSINESS, "0199")] == [draft.number]
+    assert list_quotes(conn, BUSINESS, "0199") == []
 
 
 def test_search_texts_hold_the_customers_details(conn):
