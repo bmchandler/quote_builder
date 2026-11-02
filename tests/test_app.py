@@ -1951,6 +1951,145 @@ async def test_a_picked_line_counts_as_a_change(user, conn):
     await user.should_see("Discard unsaved changes?")
 
 
+def description_field(user, n):
+    [field] = user.find(marker=f"description-{n}").elements
+    return field
+
+
+def add_to_catalog_slot(user, n, kind):
+    """A slot's child, as user.find doesn't look in slots."""
+    [child] = [
+        element
+        for element in description_field(user, n).slots["append"].children
+        if isinstance(element, kind)
+    ]
+    return child
+
+
+def add_to_catalog_button(user, n):
+    return add_to_catalog_slot(user, n, ui.button)
+
+
+def description_hover(user, n):
+    [hover] = description_field(user, n).default_slot.children
+    return hover
+
+
+async def click_add_to_catalog(user, n):
+    send(user, add_to_catalog_button(user, n), "click")
+    await user.should_see(marker="catalog-description")
+
+
+async def test_a_lines_box_is_labeled_tax(user):
+    await new_quote(user)
+    [box] = user.find(marker="taxed-1").elements
+    assert box.text == "Tax"
+
+
+async def test_add_to_catalog_waits_for_a_description(user):
+    await new_quote(user)
+    assert not add_to_catalog_button(user, 1).visible
+    user.find(marker="description-1").type("Mulch")
+    await eventually(lambda: add_to_catalog_button(user, 1).visible)
+    user.find(marker="description-1").clear()
+    await eventually(lambda: not add_to_catalog_button(user, 1).visible)
+
+
+async def test_add_to_catalog_has_its_hint(user):
+    await new_quote(user)
+    hint = add_to_catalog_slot(user, 1, ui.tooltip)
+    assert hint.text == "Add to Catalog"
+    assert hint.props["target"] == f"#{add_to_catalog_button(user, 1).html_id}"
+
+
+async def test_tab_skips_add_to_catalog(user):
+    await new_quote(user)
+    assert add_to_catalog_button(user, 1).props["tabindex"] == "-1"
+
+
+async def test_hovering_shows_the_full_description(user):
+    await new_quote(user)
+    assert not description_hover(user, 1).visible
+    user.find(marker="description-1").type("Mow lawn, front and back")
+    await eventually(
+        lambda: description_hover(user, 1).text == "Mow lawn, front and back"
+    )
+    assert description_hover(user, 1).visible
+
+
+async def test_a_long_description_is_cut_off_with_dots(user):
+    await new_quote(user)
+    assert description_field(user, 1).props["input-class"] == "truncate"
+
+
+async def test_add_a_line_to_the_catalog(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, " Mulch ", "3", "$6.50")
+    user.find(marker="taxed-1").click()
+    await eventually(lambda: add_to_catalog_button(user, 1).visible)
+    await click_add_to_catalog(user, 1)
+    assert value(user.find(marker="catalog-description")) == "Mulch"
+    assert value(user.find(marker="catalog-price")) == "$6.50"
+    assert value(user.find(marker="catalog-unit")) == ""
+    [taxable] = user.find(marker="catalog-taxable").elements
+    assert taxable.value
+    user.find(marker="catalog-unit").type("each")
+    user.find(marker="save-catalog-item").click()
+
+    await user.should_see("Added Mulch to the catalog")
+    [item] = list_catalog_items(conn, BUSINESS)
+    assert (item.description, item.price_cents, item.unit, item.taxable) == (
+        "Mulch",
+        650,
+        "each",
+        True,
+    )
+    # The line stays as it was, and can be picked again at once.
+    assert value(user.find(marker="quantity-1")) == "3"
+    [select] = user.find(marker="add-from-catalog").elements
+    assert select.visible
+    assert select.options == {item.id: "Mulch\n$6.50 / each"}
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+
+
+async def test_a_price_that_doesnt_read_starts_blank(user):
+    await new_quote(user)
+    fill_line(user, 1, "Mulch", "1", "lots")
+    await eventually(lambda: add_to_catalog_button(user, 1).visible)
+    await click_add_to_catalog(user, 1)
+    assert value(user.find(marker="catalog-price")) == ""
+
+
+async def test_cancel_adds_nothing_to_the_catalog(user, conn):
+    await new_quote(user)
+    user.find(marker="description-1").type("Mulch")
+    await eventually(lambda: add_to_catalog_button(user, 1).visible)
+    await click_add_to_catalog(user, 1)
+    user.find(kind=ui.button, content="Cancel").click()
+
+    await user.should_not_see(marker="catalog-description")
+    assert list_catalog_items(conn, BUSINESS) == []
+    await user.should_not_see(marker="add-from-catalog")
+
+
+async def test_adding_to_the_catalog_isnt_a_change_to_the_quote(user, conn):
+    quote = save_new_quote(
+        conn,
+        make_quote(line_items=[LineItem("Mulch", Decimal(1), 650)]),
+    )
+    await reload(user)
+    user.find(marker=f"quote-{quote.number}").click()
+    await user.should_see(marker="description-1")
+    await click_add_to_catalog(user, 1)
+    user.find(marker="save-catalog-item").click()
+    await user.should_see("Added Mulch to the catalog")
+
+    user.find(marker="settings").click()
+    await user.should_see(marker="add-business")
+    await user.should_not_see("Discard unsaved changes?")
+
+
 def jane(conn, **changes):
     customer = Customer(
         BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St"

@@ -230,6 +230,10 @@ of one: a second copy drifts, and can mask a problem in this file.
   (use `props("active")`); a handler that takes a parameter is passed
   the event's arguments (wrap it: `lambda: add_line()`);
   `refreshable.refresh()` runs in the background unless awaited.
+  `.tooltip()` adds a sibling aimed by `target`, so in a slot it's one
+  of the slot's children; an input's `html_id` is on its `<input>`, so
+  a tooltip can aim at the text alone. A button in a field's `append`
+  slot is in the Tab order unless given `tabindex="-1"`.
   A select's typing filter (`with_input`) matches the choices'
   labels in the browser; the Customer field packs name and details
   into each label, on two lines, and draws them with slot templates.

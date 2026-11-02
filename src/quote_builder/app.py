@@ -974,6 +974,7 @@ class LineInputs:
         item: LineItem | None,
         on_change: Callable[[], None],
         on_remove: Callable[["LineInputs"], None],
+        on_add_to_catalog: Callable[["LineInputs"], Awaitable[None]],
     ) -> None:
         def text_input(label: str, value: str, name: str, width: str) -> ui.input:
             # Text inputs, not ui.number, which gives a float.
@@ -986,7 +987,23 @@ class LineInputs:
         with ui.row().classes("items-end no-wrap gap-2 w-full") as self.row:
             self.description = text_input(
                 "Description", item.description if item else "", "description", "grow"
-            )
+            ).props('input-class="truncate"')  # ... where it doesn't fit
+            with self.description:
+                # Only over the text, as the (+) has its own hint: this
+                # id is on the <input> inside the field.
+                self.full_description = ui.tooltip().props(
+                    f'target="#{self.description.html_id}"'
+                )
+            with self.description.add_slot("append"):
+                self.add_to_catalog = (
+                    ui.button(
+                        icon="add_circle_outline",
+                        on_click=lambda: on_add_to_catalog(self),
+                    )
+                    # tabindex: Tab goes from Description straight to Qty.
+                    .props('flat round dense size=sm tabindex="-1"')
+                    .tooltip("Add to Catalog")
+                )
             self.quantity = text_input(
                 "Qty", str(item.quantity) if item else "1", "quantity", "w-12"
             )
@@ -1007,7 +1024,7 @@ class LineInputs:
             # Untaxed to start, as a line was with a blank Tax %.
             self.taxed = (
                 ui.checkbox(
-                    "Taxed", value=item.taxed if item else False, on_change=on_change
+                    "Tax", value=item.taxed if item else False, on_change=on_change
                 )
                 .props("dense")
                 .classes("pb-2")
@@ -1019,6 +1036,16 @@ class LineInputs:
             ui.button(icon="delete", on_click=lambda: on_remove(self)).props(
                 "flat dense"
             ).mark(f"remove-{marker}")
+        self.description.on_value_change(self.show_description)
+        self.show_description()
+
+    def show_description(self) -> None:
+        """The hover text and the (+) wait for a description: a catalog
+        item needs one."""
+        text = (self.description.value or "").strip()
+        self.full_description.text = text
+        self.full_description.set_visibility(bool(text))
+        self.add_to_catalog.set_visibility(bool(text))
 
     def is_blank(self) -> bool:
         """True if nothing's been entered: as a new line starts."""
@@ -1299,7 +1326,7 @@ def quote_editor(
         nonlocal added
         added += 1
         with lines_column:
-            line = LineInputs(added, item, update_totals, remove)
+            line = LineInputs(added, item, update_totals, remove, add_to_catalog)
         lines.append(line)
         update_totals()
         return line
@@ -1309,7 +1336,38 @@ def quote_editor(
         lines_column.remove(line.row)
         update_totals()
 
-    catalog = {item.id: item for item in list_catalog_items(conn, quote.business_id)}
+    catalog: dict[int, CatalogItem] = {}
+
+    def load_catalog() -> None:
+        nonlocal catalog
+        catalog = {item.id: item for item in list_catalog_items(conn, quote.business_id)}
+        from_catalog.set_options(
+            {
+                item.id: f"{item.description}\n{item.price_text}"
+                for item in catalog.values()
+            }
+        )
+        # Only once there's something to pick.
+        from_catalog.set_visibility(bool(catalog))
+
+    async def add_to_catalog(line: LineInputs) -> None:
+        """A new catalog item from `line`, which stays as it is."""
+        try:
+            price = parse_money(line.price.value)
+        except ValueError:
+            price = None  # blank, or doesn't read yet: left to type
+        answer = await ask_catalog_item(
+            CatalogItem(
+                quote.business_id,
+                line.description.value.strip(),
+                price,
+                taxable=line.taxed.value,
+            )
+        )
+        if answer is not None:
+            save_catalog_item(conn, answer)
+            ui.notify(f"Added {answer.description} to the catalog")
+            load_catalog()
 
     def add_from_catalog() -> None:
         item = catalog.get(from_catalog.value)
@@ -1330,22 +1388,18 @@ def quote_editor(
 
     with ui.row().classes("items-center"):
         ui.button("Add Line", on_click=lambda: add_line())
-        # Only once there's something to pick.
-        if catalog:
-            from_catalog = (
-                ui.select(
-                    {
-                        item.id: f"{item.description}\n{item.price_text}"
-                        for item in catalog.values()
-                    },
-                    label="Add from catalog",
-                    with_input=True,
-                    on_change=add_from_catalog,
-                )
-                .classes("w-64")
-                .mark("add-from-catalog")
+        from_catalog = (
+            ui.select(
+                {},
+                label="Add from catalog",
+                with_input=True,
+                on_change=add_from_catalog,
             )
-            from_catalog.add_slot("option", TWO_LINE_OPTION)
+            .classes("w-64")
+            .mark("add-from-catalog")
+        )
+        from_catalog.add_slot("option", TWO_LINE_OPTION)
+    load_catalog()
 
     @ui.refreshable
     def foot() -> None:

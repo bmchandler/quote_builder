@@ -379,9 +379,21 @@ Built (as of 2026-11-01), each with tests:
     by description, price, or unit, each shown as its description with
     "$45.00 / hour" below. Picking one adds a line of it: its
     description, quantity 1, its price (blank if it has none), and
-    Taxed ticked if it's taxable; all can then be changed for this
+    Tax ticked if it's taxable; all can then be changed for this
     quote only. It fills a last line that's still blank instead, as a
     new quote opens with one. The field then clears for the next pick.
+  - Add to Catalog (decided 2026-11-01): once a line has a description,
+    a circled plus shows at the right of its Description field, with
+    "Add to Catalog" on mouse-over. Tab skips it, going on to Qty.
+    Clicking it opens the catalog's dialog, filled in from the line
+    (a price that doesn't read starts blank; Unit starts blank, as a
+    line has none). Saving adds the item, ready to pick; the line
+    stays as it is and doesn't count as a change to the quote. The
+    catalog allows duplicates, so nothing checks for one.
+  - A long description (decided 2026-11-01): Description widens with
+    the window. Where it doesn't fit, it ends in "…" before the plus
+    while the field isn't being typed in, and mouse-over shows it all.
+    "Tax", not "Taxed", labels a line's box, for the room.
   - The top left (decided 2026-10-24) shows "Quote Builder" until the
     business has a name, then the name, in italics for a pilot. Once
     there's a second, it's a dropdown of all the names, in the same
@@ -402,7 +414,7 @@ Built (as of 2026-11-01), each with tests:
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit price,
-    discount, Taxed, and notes, with totals updating as you type); Save
+    discount, Tax, and notes, with totals updating as you type); Save
     saves it. Any other status opens read-only.
   - Customer on a quote (decided 2026-11-01): a draft's "Customer",
     above Tax rate, is optional, even to mark it Quoted. Typing in it
@@ -424,7 +436,7 @@ Built (as of 2026-11-01), each with tests:
   - Tax on a quote (decided 2026-10-25): a draft's "Tax rate", above
     its lines, lists "Untaxed" and the business's rates ("Home county
     · 7.25%"), starting on the default (Untaxed without one). Each
-    line has a Taxed box, unticked to start (as a blank Tax % was).
+    line has a Tax box, unticked to start (as a blank Tax % was).
     Changing the rate works the taxed lines out again at once;
     Untaxed leaves the boxes ticked, so switching back restores the
     tax. The rate counts as a change for "Discard unsaved changes?".
