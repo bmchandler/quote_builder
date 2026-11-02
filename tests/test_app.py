@@ -1898,3 +1898,65 @@ async def test_search_shows_the_first_line_when_the_row_shows_the_customer(
     await user.should_see(marker=f"match-{saved.number}")
     [match] = [p for p in row_html(user, saved.number) if p.startswith("Line Item")]
     assert match.startswith("Line Item 1: <mark")
+
+
+async def test_search_finds_a_quote_by_its_customers_details(user, conn):
+    saved = save_new_quote(
+        conn,
+        make_quote(
+            customer=jane(conn), line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+        ),
+    )
+    save_new_quote(
+        conn, make_quote(line_items=[LineItem("Clean gutters", Decimal(1), 9000)])
+    )
+    await reload(user)
+    await search_for(user, "0134")
+
+    assert list_order(user) == [saved.number]
+    await user.should_see(marker=f"match-{saved.number}")
+    [match] = [p for p in row_html(user, saved.number) if p.startswith("Customer")]
+    assert match.startswith("Customer: 555-<mark")
+
+
+async def test_search_highlights_the_customers_name_in_the_row(user, conn):
+    saved = save_new_quote(conn, make_quote(customer=jane(conn)))
+    await reload(user)
+    await search_for(user, "jane")
+
+    assert any(">Jane</mark> Doe" in part for part in row_html(user, saved.number))
+    await user.should_not_see(marker=f"match-{saved.number}")
+
+
+async def test_a_quoted_quote_highlights_its_customers_matches(user, conn):
+    quoted = mark_quoted(
+        conn,
+        make_quote(
+            customer=jane(conn), line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+        ),
+        date(2026, 10, 19),
+        date(2026, 11, 18),
+    )
+    await reload(user)
+    await search_for(user, "oak")
+    user.find(marker=f"quote-{quoted.number}").click()
+
+    await user.should_see(marker="view-customer-details")
+    [details] = user.find(marker="view-customer-details").elements
+    assert ">Oak</mark> St" in details.content
+    [name] = user.find(marker="view-customer").elements
+    assert name.content == "Customer: Jane Doe"
+
+
+async def test_a_draft_tints_its_customer_when_it_matches(user, conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, make_quote(customer=doe))
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+    assert not tinted(user, "customer")
+
+    user.find(marker="search").type("jane@")
+    await eventually(lambda: tinted(user, "customer"))
+    customer_field(user).value = None  # no customer: nothing to match
+    await eventually(lambda: not tinted(user, "customer"))

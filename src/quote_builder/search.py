@@ -106,7 +106,12 @@ def hidden_match(
 def _place(piece: SearchText, newest: int) -> str:
     # "Line Item", not "Line" (reads like code) or "Item" (odd for a
     # service).
-    where = "Notes" if piece.field == "notes" else f"Line Item {piece.position + 1}"
+    if piece.field == "customer":
+        where = "Customer"
+    elif piece.field == "notes":
+        where = "Notes"
+    else:
+        where = f"Line Item {piece.position + 1}"
     if piece.revision == newest:
         return where
     version = f"R{piece.revision}" if piece.revision else "Original"

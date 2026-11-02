@@ -934,3 +934,42 @@ def test_a_customer_with_quotes_cant_be_deleted(conn):
     save_new_quote(conn, make_quote(customer=doe))
     with pytest.raises(sqlite3.IntegrityError), conn:
         conn.execute("DELETE FROM customers WHERE id = ?", (doe.id,))
+
+
+@pytest.mark.parametrize("search", ["JANE", "example.com", "0134", "oak st"])
+def test_search_matches_the_customers_details(conn, search):
+    save_new_quote(conn, make_quote(customer=jane(conn)))
+    save_new_quote(conn, make_quote(notes="No customer"))
+    [found] = list_quotes(conn, BUSINESS, search)
+    assert found.customer_name == "Jane Doe"
+
+
+def test_search_matches_a_quoted_customer_as_kept(conn):
+    doe = jane(conn)
+    mark_quoted(
+        conn, replace(lawn_quote(), customer=doe), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+    )
+    draft = save_new_quote(conn, make_quote(customer=doe), numbers("Q-8AB-C2DE"))
+    fix_customer(conn, doe.id, phone="555-0199")
+
+    assert [s.number for s in list_quotes(conn, BUSINESS, "0134")] == ["Q-7KQ-M9XD"]
+    assert [s.number for s in list_quotes(conn, BUSINESS, "0199")] == [draft.number]
+
+
+def test_search_texts_hold_the_customers_details(conn):
+    saved = save_new_quote(
+        conn,
+        make_quote(
+            customer=jane(conn, email=""),
+            notes="Gate code 4411",
+            line_items=[LineItem("Mow lawn", Decimal(1), 4500)],
+        ),
+        numbers("Q-7KQ-M9XD"),
+    )
+    assert search_texts(conn, [saved.number])[saved.number] == [
+        SearchText(0, "customer", 0, "Jane Doe"),
+        SearchText(0, "customer", 2, "555-0134"),  # no email: left out
+        SearchText(0, "customer", 3, "12 Oak St"),
+        SearchText(0, "line", 0, "Mow lawn"),
+        SearchText(0, "notes", 0, "Gate code 4411"),
+    ]

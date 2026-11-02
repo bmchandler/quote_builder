@@ -677,8 +677,10 @@ def list_quotes(
     """Each of a business's quotes' newest version, last changed first,
     matching `search` if given.
 
-    A quote matches if any version's number, notes, or line description
-    holds the search text, in any case.
+    A quote matches if any version's number, notes, line description,
+    or customer's details (name, email, phone, address) hold the search
+    text, in any case: a quoted version's details as kept, a draft's as
+    they are now.
     """
     # In LIKE, % and _ are wildcards: escape them (and the escape
     # character itself) so they match only themselves.
@@ -701,7 +703,13 @@ def list_quotes(
                      OR v.notes LIKE :pattern ESCAPE '\'
                      OR EXISTS (SELECT 1 FROM line_items
                                 WHERE quote_id = v.id
-                                  AND description LIKE :pattern ESCAPE '\')))
+                                  AND description LIKE :pattern ESCAPE '\')
+                     OR EXISTS (SELECT 1 FROM quote_customers
+                                WHERE quote_id = v.id
+                                  AND (name LIKE :pattern ESCAPE '\'
+                                       OR email LIKE :pattern ESCAPE '\'
+                                       OR phone LIKE :pattern ESCAPE '\'
+                                       OR address LIKE :pattern ESCAPE '\'))))
         ORDER BY q.updated_at DESC, q.id DESC
         """,
         {"business_id": business_id, "pattern": pattern},
@@ -723,20 +731,39 @@ def list_versions(conn: sqlite3.Connection, number: str) -> list[QuoteSummary]:
     return _summaries(conn, rows)
 
 
+# A customer's details search looks in, in order: column names here
+# and in the quote_customers view, from our own code, never the user's.
+CUSTOMER_DETAILS = ("name", "email", "phone", "address")
+
+
 def search_texts(
     conn: sqlite3.Connection, numbers: list[str]
 ) -> dict[str, list[SearchText]]:
-    """The line descriptions and notes of every version of these
-    quotes, by number: newest version first, lines in order, then notes.
+    """The customer details, line descriptions, and notes of every
+    version of these quotes, by number: newest version first; in each,
+    the customer's name, email, phone, and address, the lines in
+    order, then the notes.
 
     One query for all the quotes, as for line items.
     """
     if not numbers:
         return {}
     placeholders = ", ".join("?" * len(numbers))
-    # 'line' sorts before 'notes', so each version's lines come first.
+    # One row per customer detail, numbered in the order above.
+    details = " UNION ALL ".join(
+        f"""
+        SELECT q.number AS number, q.revision AS revision,
+               'customer' AS field, {position} AS position, c.{column} AS text
+        FROM quotes AS q JOIN quote_customers AS c ON c.quote_id = q.id
+        WHERE q.number IN ({placeholders}) AND c.{column} != ''
+        """
+        for position, column in enumerate(CUSTOMER_DETAILS)
+    )
+    # 'customer' sorts before 'line', and that before 'notes'.
     rows = conn.execute(
         f"""
+        {details}
+        UNION ALL
         SELECT q.number, q.revision, 'line' AS field, li.position,
                li.description AS text
         FROM quotes AS q JOIN line_items AS li ON li.quote_id = q.id
@@ -747,7 +774,7 @@ def search_texts(
         WHERE number IN ({placeholders}) AND notes != ''
         ORDER BY 1, 2 DESC, 3, 4
         """,
-        [*numbers, *numbers],
+        numbers * (len(CUSTOMER_DETAILS) + 2),
     ).fetchall()
     texts: dict[str, list[SearchText]] = {}
     for row in rows:
@@ -759,8 +786,8 @@ def search_texts(
 
 _SUMMARY_COLUMNS = """
     q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
-    q.valid_until, q.frozen_total_cents, q.tax_rate_id, q.customer_id,
-    q.frozen_customer_name
+    q.valid_until, q.frozen_total_cents, q.tax_rate_id,
+    (SELECT name FROM quote_customers WHERE quote_id = q.id) AS customer_name
 """
 
 
@@ -769,16 +796,11 @@ def _summaries(
 ) -> list[QuoteSummary]:
     lines = _line_items_of(conn, [row["id"] for row in rows])
     rates = _rates_now(conn, [row["tax_rate_id"] for row in rows])
-    customers = _customers_now(conn, [row["customer_id"] for row in rows])
     summaries = []
     for row in rows:
         items = lines.get(row["id"], [])
         rate = rates.get(row["tax_rate_id"])
         tax_percent = rate.percent if rate else Decimal(0)
-        # Once quoted, the name as it was; a draft's as it is now.
-        customer_name = row["frozen_customer_name"]
-        if customer_name is None and row["customer_id"] in customers:
-            customer_name = customers[row["customer_id"]].name
         summaries.append(
             QuoteSummary(
                 number=row["number"],
@@ -793,7 +815,7 @@ def _summaries(
                 ),
                 issued_on=_date(row["issued_on"]),
                 valid_until=_date(row["valid_until"]),
-                customer_name=customer_name or None,  # '': quoted without one
+                customer_name=row["customer_name"],  # None without one
             )
         )
     return summaries

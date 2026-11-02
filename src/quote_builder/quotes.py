@@ -121,8 +121,10 @@ class SearchText:
     """A piece of a quote's text that search looks in."""
 
     revision: int
-    field: str  # "line" or "notes"
-    position: int  # the line's place on the quote, from 0; 0 for notes
+    field: str  # "customer", "line", or "notes"
+    # The line's place on the quote, from 0; for the customer, which
+    # detail (name, email, phone, address: 0 to 3); 0 for notes.
+    position: int
     text: str
 
 

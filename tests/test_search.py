@@ -99,6 +99,22 @@ def test_hidden_match_in_the_first_line_when_the_row_shows_the_customer():
     assert hidden_match(summary(customer_name="Jane Doe"), texts, "jane") is None
 
 
+def customer(revision, position, text):
+    return SearchText(revision, "customer", position, text)
+
+
+def test_hidden_match_in_the_customers_details():
+    texts = [customer(0, 0, "Jane Doe"), customer(0, 2, "555-0134")]
+    found = hidden_match(summary(customer_name="Jane Doe"), texts, "0134")
+    assert found == HiddenMatch("Customer", "555-0134", 0)
+
+
+def test_hidden_match_in_an_older_versions_customer():
+    texts = [customer(1, 0, "Jane Smith"), customer(0, 0, "Jane Doe")]
+    found = hidden_match(summary(revision=1, customer_name="Jane Smith"), texts, "doe")
+    assert found == HiddenMatch("Original, Customer", "Jane Doe", 0)
+
+
 def test_hidden_match_in_notes():
     texts = [line(0, 0, "Mow lawn"), notes(0, "Back hedges too")]
     found = hidden_match(summary(), texts, "hedges")

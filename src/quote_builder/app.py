@@ -44,6 +44,7 @@ from quote_builder.quotes import (
     version_name,
 )
 from quote_builder.storage import (
+    CUSTOMER_DETAILS,
     NameNeeded,
     NotExtendable,
     RateInUse,
@@ -932,11 +933,13 @@ class CustomerPicker:
         conn: sqlite3.Connection,
         business_id: int,
         customer: Customer | None,
+        on_change: Callable[[], None],
     ) -> None:
         self.conn = conn
         self.business_id = business_id
         self.customers = {c.id: c for c in list_customers(conn, business_id)}
         self.typed = ""  # what's typed in the field, for Add customer
+        self.on_change = on_change  # called once another customer is picked
         picked = customer.id if customer and customer.id in self.customers else None
         self.select = (
             ui.select(
@@ -982,6 +985,7 @@ class CustomerPicker:
     def picked(self) -> None:
         self.typing("")
         self.show_details()
+        self.on_change()
 
     def show_details(self) -> None:
         customer = self.customer()
@@ -1116,7 +1120,9 @@ def quote_editor(
     else:
         heading = f"{name_of(quote)} ({quote.status})"
     quote_heading(heading, on_history)
-    customer = CustomerPicker(conn, quote.business_id, quote.customer)
+    customer = CustomerPicker(
+        conn, quote.business_id, quote.customer, on_change=lambda: show_matches()
+    )
     # The business's rates as they are now: a draft follows its rate.
     rates = {rate.id: rate for rate in list_tax_rates(conn, quote.business_id)}
     tax_rate = (
@@ -1189,10 +1195,18 @@ def quote_editor(
 
     def show_matches() -> None:
         for field in [line.description for line in lines] + [notes]:
-            if matches(field.value or "", term):
-                field.classes(add=MATCHING_FIELD)
-            else:
-                field.classes(remove=MATCHING_FIELD)
+            tint(field, matches(field.value or "", term))
+        # The Customer field, if the customer's name or details hold it.
+        picked = customer.customer()
+        tint(customer.select, picked is not None and any(
+            matches(getattr(picked, detail), term) for detail in CUSTOMER_DETAILS
+        ))
+
+    def tint(field: ui.element, matching: bool) -> None:
+        if matching:
+            field.classes(add=MATCHING_FIELD)
+        else:
+            field.classes(remove=MATCHING_FIELD)
 
     def search_changed(new_term: str) -> None:
         nonlocal term
@@ -1455,9 +1469,11 @@ def quote_view(
         ).mark("extensions")
     # The customer and rate as they were when quoted, kept with the quote.
     if quote.customer is not None:
-        ui.label(f"Customer: {quote.customer.name}").mark("view-customer")
+        searched_text(quote.customer.name, term, before="Customer: ").mark(
+            "view-customer"
+        )
         if quote.customer.details:
-            ui.label(quote.customer.details).classes("text-grey-7").mark(
+            searched_text(quote.customer.details, term).classes("text-grey-7").mark(
                 "view-customer-details"
             )
     if quote.tax_name:
@@ -1487,13 +1503,17 @@ def quote_view(
         searched_text(quote.notes, term).mark("view-notes")
 
 
-def searched_text(text: str, term: str, after: str = "") -> ui.element:
-    """`text`, then `after`; while searching for `term`, its matches in
-    `text` are highlighted, as in the list."""
+def searched_text(
+    text: str, term: str, after: str = "", before: str = ""
+) -> ui.element:
+    """`text`, between `before` and `after`; while searching for `term`,
+    its matches in `text` are highlighted, as in the list."""
     if not term:
-        return ui.label(text + after)
+        return ui.label(before + text + after)
     # highlight escapes the text; ui.html's sanitizer keeps the <mark>s.
-    return ui.html(highlight(text, term) + html.escape(after), tag="div")
+    return ui.html(
+        html.escape(before) + highlight(text, term) + html.escape(after), tag="div"
+    )
 
 
 def older_version_banner(newest: QuoteSummary, on_open: Callable[[], None]) -> None:

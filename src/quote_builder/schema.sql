@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_customer_address IS NULL))
 ) STRICT;
 
+-- Each quote's customer details as it shows them: a quoted one's as
+-- kept, a draft's as they are now. Only quotes with a customer. (A
+-- view is a stored SELECT, used like a table; to change one, drop it
+-- first, as IF NOT EXISTS leaves an old one be.)
+CREATE VIEW IF NOT EXISTS quote_customers AS
+    SELECT q.id AS quote_id,
+           coalesce(q.frozen_customer_name, c.name) AS name,
+           coalesce(q.frozen_customer_email, c.email) AS email,
+           coalesce(q.frozen_customer_phone, c.phone) AS phone,
+           coalesce(q.frozen_customer_address, c.address) AS address
+    FROM quotes AS q JOIN customers AS c ON c.id = q.customer_id;
+
 -- At most one draft per quote number: a revision is worked on one at
 -- a time. (A partial index: only rows matching WHERE are indexed.)
 CREATE UNIQUE INDEX IF NOT EXISTS one_draft_per_quote

@@ -304,10 +304,12 @@ Built (as of 2026-11-01), each with tests:
     date last saved (local time), and the total; newest first, the open
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
-    you type, matches the number, the notes, or any line's description,
-    in any case, in any version (decided 2026-10-19). The list and
-    search cover only the business shown (decided 2026-10-20), and a
-    new quote belongs to it. The list scrolls on its own, below Search
+    you type, matches the number, the notes, any line's description,
+    or the customer's name, email, phone, or address (decided
+    2026-11-01; a quoted version's as kept, a draft's as they are
+    now), in any case, in any version (decided 2026-10-19). The list
+    and search cover only the business shown (decided 2026-10-20),
+    and a new quote belongs to it. The list scrolls on its own, below Search
     and New Quote.
   - Settings (decided 2026-10-20; reworked 2026-10-24): at the bottom
     of the side panel, below a divider, a Settings button. Settings
@@ -360,13 +362,15 @@ Built (as of 2026-11-01), each with tests:
     pilots; picking one shows its quotes (asking first, with unsaved
     changes). The window's title stays "Quote Builder".
   - Search matches are highlighted (decided 2026-10-19), in a soft
-    amber, in the row's number and first line. A match the row doesn't
-    show (notes, a later line, an older version) adds a small italic
+    amber, in the row's number and second line (customer or first
+    line). A match the row doesn't show (notes, a later line, the
+    customer's other details, an older version) adds a small italic
     line with where and an excerpt: "Notes: …the back hedges need…",
-    "Line Item 2: Flush downspouts", "R1, Line Item 3: …" ("Line
-    Item", not "Line", which reads like code, or "Item", odd for a
-    service). A row showing its customer hides the first line, so a
-    match there gets its line too ("Line Item 1: Mow lawn"). On trial: if it's too busy, it may become just where
+    "Line Item 2: Flush downspouts", "Customer: 555-0134", "R1, Line
+    Item 3: …" ("Line Item", not "Line", which reads like code, or
+    "Item", odd for a service). A row showing its customer hides the
+    first line, so a match there gets its line too ("Line Item 1: Mow
+    lawn"). On trial: if it's too busy, it may become just where
     ("Match in notes"), or go.
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
@@ -456,14 +460,16 @@ Built (as of 2026-11-01), each with tests:
     2026-10-20): lines and notes mostly carry over between
     revisions, so a row per version would mostly repeat.
   - Highlights on the open quote (decided 2026-10-20): while
-    searching, a read-only quote highlights the matches in its lines
-    and notes, as the list does, following the search as it's typed
-    or cleared, and across versions opened from Version history: a
-    quick way to see which versions word it differently. In a
-    draft's form, an input can't highlight part of its text, so each
-    description or notes field holding the term is tinted pale amber
-    instead, following the search and the typing. That way the user
-    needn't wonder whether the draft holds the term.
+    searching, a read-only quote highlights the matches in its
+    customer, lines, and notes, as the list does, following the
+    search as it's typed or cleared, and across versions opened from
+    Version history: a quick way to see which versions word it
+    differently. In a draft's form, an input can't highlight part of
+    its text, so each description or notes field holding the term is
+    tinted pale amber instead, following the search and the typing,
+    and the Customer field when the customer's name or details hold
+    it (decided 2026-11-01). That way the user needn't wonder whether
+    the draft holds the term.
   - Older versions (decided 2026-10-20): any version but the newest,
     however it was opened, shows an amber banner under its heading:
     "This is an older version. R2 (Draft) is the newest.", with "Go
@@ -475,10 +481,7 @@ Built (as of 2026-11-01), each with tests:
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Search on customer details: the list's Search matching a
-   quote's customer's name, phone, email, and address (a match
-   outside the row's name adding an excerpt line).
-2. The catalog.
+1. The catalog.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the
