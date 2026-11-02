@@ -484,3 +484,16 @@ Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the
 printout leaves its layout, wording, and output free to change apart
 from the working screen. See Future.
+
+## Later polish
+
+Polish to weigh once the main features are done (started
+2026-11-01). Captured so it isn't lost, not promised: an item may no
+longer fit by then, or the work before may have changed it.
+
+- Phone numbers formatted as typed: `1234567890` becomes
+  `123.456.7890`, not `(123) 456-7890`. Or the form could vary with
+  the room: dots where space is tight, `(123) 456-7890` where there's
+  room, as on a printout.
+- A quoted quote's buttons, such as Extend and Revise, moved
+  elsewhere on it (where is to be settled).
