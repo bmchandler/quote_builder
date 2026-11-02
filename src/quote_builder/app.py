@@ -41,7 +41,10 @@ from quote_builder.quotes import (
     QuoteSummary,
     QuoteTotals,
     Status,
+    extend_tax_note,
+    rate_changed_note,
     revision_draft,
+    tax_change_note,
     version_name,
 )
 from quote_builder.storage import (
@@ -142,6 +145,11 @@ def quote_page(
                     newest = versions[0]
                     quote_view(
                         quote,
+                        rate_changed=(
+                            rate_changed_note(quote, rate_now(conn, quote))
+                            if quote.status is Status.QUOTED
+                            else None
+                        ),
                         on_extend=lambda: extend(quote),
                         on_revise=revise_action(quote, versions),
                         on_history=on_history,
@@ -281,8 +289,23 @@ def quote_page(
 
         async def extend(quote: Quote) -> None:
             extend_days = current_business(conn).extend_days
-            extended = await ask_extension(conn, quote, today(), extend_days)
-            if extended is not None:
+            versions = list_versions(conn, quote.number)
+            on_revise = revise_action(quote, versions)
+            # A quote being extended isn't a draft, so a draft is newer.
+            draft = None
+            if versions[0].status is Status.DRAFT:
+                draft = load_quote(conn, quote.number, versions[0].revision)
+            extended = await ask_extension(
+                conn,
+                quote,
+                today(),
+                extend_days,
+                can_revise=on_revise is not None,
+                draft=draft,
+            )
+            if extended is REVISE:
+                on_revise()
+            elif extended is not None:
                 ui.notify(
                     f"{name_of(extended)} valid through "
                     f"{format_numeric_date(extended.valid_until)}"
@@ -686,6 +709,7 @@ def tax_rates(conn: sqlite3.Connection, business_id: int) -> None:
 
 
 DELETE = object()  # a dialog's answer when Delete is clicked
+REVISE = object()  # the Extend dialog's answer when Revise is clicked
 UNTAXED = "untaxed"  # the Tax rate choice for no rate (the others are ids)
 
 
@@ -1290,6 +1314,10 @@ def quote_editor(
     else:
         heading = f"{name_of(quote)} ({quote.status})"
     quote_heading(heading, on_history)
+    show_tax_change = None
+    if quote.revision > 0:
+        before = load_quote(conn, quote.number, quote.revision - 1)
+        show_tax_change = tax_change_banner(before)
     customer = CustomerPicker(
         conn, quote.business_id, quote.customer, on_change=lambda: show_matches()
     )
@@ -1301,7 +1329,7 @@ def quote_editor(
             | {rate.id: f"{rate.name} · {rate.percent}%" for rate in rates.values()},
             label="Tax rate",
             value=quote.tax_rate_id if quote.tax_rate_id in rates else UNTAXED,
-            on_change=lambda: update_totals(),
+            on_change=lambda: rate_picked(),
         )
         .classes("w-64")
         .mark("tax-rate")
@@ -1317,6 +1345,14 @@ def quote_editor(
         return replace(
             changed, tax_rate_id=rate.id, tax_name=rate.name, tax_percent=rate.percent
         )
+
+    def rate_picked() -> None:
+        if show_tax_change:
+            show_tax_change(with_tax_rate(quote))
+        update_totals()
+
+    if show_tax_change:
+        show_tax_change(with_tax_rate(quote))
 
     lines_column = ui.column().classes("w-full")
     lines: list[LineInputs] = []  # in order on the quote
@@ -1571,13 +1607,21 @@ async def ask_quoted_dates(
 
 
 async def ask_extension(
-    conn: sqlite3.Connection, quote: Quote, today: date, extend_days: int | None
-) -> Quote | None:
+    conn: sqlite3.Connection,
+    quote: Quote,
+    today: date,
+    extend_days: int | None,
+    can_revise: bool = False,
+    draft: Quote | None = None,
+) -> Quote | object | None:
     """Ask how far to extend `quote`, and extend it. `extend_days` (the
     business's setting) picks the first choice: 30 or 7 picks that one,
     any other number a custom date that many days on; None picks 30.
+    `can_revise` offers Revise too, when its rate has changed. `draft`
+    is its newer draft, if it has one.
 
-    Returns the extended quote, or None if the user cancels.
+    Returns the extended quote, REVISE if the user would rather revise,
+    or None if the user cancels.
     """
     choices = {"30": "30 more days", "7": "7 more days", "custom": "Custom date"}
     days = extend_days or 30  # 30 unset, as the usual choice
@@ -1599,6 +1643,10 @@ async def ask_extension(
         )
         custom.bind_visibility_from(choice, "value", value="custom")
         new_date_label = ui.label().mark("new-valid-through")
+        rate = rate_now(conn, quote)
+        tax_note = extend_tax_note(quote, rate, draft)
+        if tax_note:
+            ui.label(tax_note).mark("extend-tax-note")
 
         def new_date() -> date:
             """The date chosen; ValueError if a custom one doesn't read."""
@@ -1625,6 +1673,12 @@ async def ask_extension(
         show_new_date()
         with ui.row().classes("w-full justify-end"):
             ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            # Only where the note says to revise: a deleted rate has no
+            # new rate to take.
+            if can_revise and tax_note and rate is not None:
+                ui.button("Revise", on_click=lambda: dialog.submit(REVISE)).props(
+                    "outline"
+                ).mark("extend-revise")
             ui.button("Extend", on_click=confirm).mark("confirm-extend")
     # Esc or a click outside closes it with None, as Cancel does.
     answer = await dialog
@@ -1679,17 +1733,22 @@ def quote_view(
     newer: QuoteSummary | None = None,
     on_newest: Callable[[], None] | None = None,
     term: str = "",
+    rate_changed: str | None = None,
 ) -> None:
     """A quote that's no longer a draft, read-only.
 
     `on_revise` is the Revise button's handler, if it has one.
     `newer` is the newest version, if `quote` is an older one;
     `on_newest` opens it. While searching for `term`, its matches in
-    the lines and notes are highlighted.
+    the lines and notes are highlighted. `rate_changed` says how its
+    tax rate has changed since it was quoted, if it should say.
     """
     quote_heading(f"{name_of(quote)} ({quote.status})", on_history)
     if newer is not None:
         older_version_banner(newer, on_newest)
+    if rate_changed:
+        _, note = tax_banner()
+        note.text = rate_changed
     if quote.issued_on and quote.valid_until:
         ui.label(
             f"Issued {format_numeric_date(quote.issued_on)} · "
@@ -1768,6 +1827,38 @@ def older_version_banner(newest: QuoteSummary, on_open: Callable[[], None]) -> N
             ui.button(f"Go to {draft}{name}", on_click=on_open).props(
                 "flat no-caps"
             ).mark("go-to-newest")
+
+
+def rate_now(conn: sqlite3.Connection, quote: Quote) -> TaxRate | None:
+    """`quote`'s tax rate as it is now; None if it has none, or it's
+    been deleted."""
+    rates = list_tax_rates(conn, quote.business_id)
+    return next((rate for rate in rates if rate.id == quote.tax_rate_id), None)
+
+
+def tax_banner() -> tuple[ui.element, ui.label]:
+    """An amber banner about a quote's tax, and the label for its text."""
+    with ui.element("q-banner").props("dense rounded").classes(
+        "w-full bg-amber-2"
+    ) as banner:
+        with banner.add_slot("avatar"):
+            ui.icon("percent", size="sm", color="amber-10")
+        note = ui.label().mark("tax-change")
+    return banner, note
+
+
+def tax_change_banner(before: Quote) -> Callable[[Quote], None]:
+    """A banner for a revision draft's tax differing from the quoted
+    version `before` it; returns what shows or hides it for the draft
+    as it now stands."""
+    banner, note = tax_banner()
+
+    def show(draft: Quote) -> None:
+        text = tax_change_note(before, draft)
+        note.text = text or ""
+        banner.set_visibility(text is not None)
+
+    return show
 
 
 def _checked_item(n: int, line: LineInputs) -> LineItem:

@@ -20,6 +20,7 @@ from quote_builder.storage import (
     add_customer,
     connect,
     current_business,
+    delete_tax_rate,
     list_businesses,
     list_catalog_items,
     list_customers,
@@ -898,6 +899,232 @@ async def test_an_expired_quote_can_be_revised(user, conn):
     saved = quoted(conn, valid_until=TODAY - timedelta(days=1))
     await start_revising(user, saved)
     assert value(user.find(marker="description-1")) == "Mow lawn"
+
+
+def quoted_at(conn, rate, valid_until=VALID_UNTIL):
+    """A quoted quote taxed at `rate`, as it is now."""
+    quote = make_quote(
+        tax_rate_id=rate.id, line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+    )
+    return mark_quoted(conn, quote, date(2026, 9, 1), valid_until)
+
+
+def rate_now_750(conn, rate):
+    return save_tax_rate(conn, replace(rate, parts=[TaxPart("", Decimal("7.5"))]))
+
+
+async def test_a_revision_says_when_its_rate_has_changed(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    rate_now_750(conn, rate)
+    await start_revising(user, saved)
+
+    await user.should_see(marker="tax-change")
+    assert text(user.find(marker="tax-change")) == (
+        f"Home county's rate changed since {saved.number} was quoted: 7.25% to 7.5%"
+    )
+
+
+async def test_a_saved_revision_still_says_so(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    save_revision(conn, revision_draft(saved, 1))
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+
+    await user.should_see(marker="tax-change")
+
+
+async def test_a_revision_says_nothing_when_its_rate_is_the_same(user, conn):
+    saved = quoted_at(conn, rate_725(conn))
+    await start_revising(user, saved)
+    await user.should_not_see(marker="tax-change")
+
+
+async def test_a_new_quote_has_no_tax_change_banner(user):
+    await new_quote(user)
+    await user.should_not_see(marker="tax-change")
+
+
+async def test_the_tax_change_banner_follows_the_rate_picked(user, conn):
+    rate = rate_725(conn)
+    lake = home_county(conn, name="Lake county")  # 6.25%
+    saved = quoted_at(conn, rate)
+    await start_revising(user, saved)
+    await user.should_not_see(marker="tax-change")
+
+    [picker] = user.find(marker="tax-rate").elements
+    picker.value = lake.id
+    await user.should_see(marker="tax-change")
+    assert text(user.find(marker="tax-change")) == (
+        f"Tax changed since {saved.number} was quoted: "
+        "Home county 7.25% to Lake county 6.25%"
+    )
+    picker.value = "untaxed"
+    await eventually(
+        lambda: text(user.find(marker="tax-change")).endswith("to Untaxed")
+    )
+    picker.value = rate.id
+    await user.should_not_see(marker="tax-change")
+
+
+async def test_a_revision_says_when_its_rate_was_deleted(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    delete_tax_rate(conn, rate.id)
+    await start_revising(user, saved)
+
+    await user.should_see(marker="tax-change")
+    assert text(user.find(marker="tax-change")) == (
+        f"Home county, which {saved.number} was quoted at (7.25%), "
+        "is no longer a tax rate."
+    )
+
+
+async def test_a_quoted_quote_says_when_its_rate_has_changed(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+
+    await user.should_see(marker="tax-change")
+    assert text(user.find(marker="tax-change")) == (
+        "Home county's rate changed since this was quoted: 7.25% to 7.5%"
+    )
+
+
+async def test_a_quoted_quote_says_when_its_rate_was_deleted(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    delete_tax_rate(conn, rate.id)
+    await open_saved(user, saved)
+
+    await user.should_see(marker="tax-change")
+    assert text(user.find(marker="tax-change")) == (
+        "Home county, which this was quoted at (7.25%), is no longer a tax rate."
+    )
+
+
+async def test_a_quoted_quote_at_its_rate_says_nothing(user, conn):
+    saved = quoted_at(conn, rate_725(conn))
+    await open_saved(user, saved)
+    await user.should_see(marker="view-tax-rate")  # drawn
+    await user.should_not_see(marker="tax-change")
+
+
+async def test_an_expired_quote_has_no_tax_banner_but_extend_says_so(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate, valid_until=TODAY - timedelta(days=1))
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+    await user.should_see(f"{saved.number} (Expired)")
+    await user.should_not_see(marker="tax-change")
+
+    await start_extending(user)
+    await user.should_see(marker="extend-tax-note")
+
+
+async def test_a_superseded_version_has_no_tax_banner(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    rate_now_750(conn, rate)
+    mark_quoted(conn, revision_draft(saved, 1), TODAY, VALID_UNTIL, new_revision=True)
+    await reload(user)
+    await open_version(user, saved.number, 0)
+
+    await user.should_see(f"{saved.number} (Superseded)")
+    await user.should_not_see(marker="tax-change")
+
+
+async def test_extend_says_when_the_rate_has_changed(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+    await start_extending(user)
+
+    await user.should_see(marker="extend-tax-note")
+    assert text(user.find(marker="extend-tax-note")) == (
+        "Home county's rate changed since this was quoted: 7.25% to 7.5%. "
+        "Extending keeps 7.25%. To use the new rate, revise instead."
+    )
+
+
+async def test_extend_says_when_the_rate_was_deleted(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    delete_tax_rate(conn, rate.id)
+    await open_saved(user, saved)
+    await start_extending(user)
+
+    await user.should_see(marker="extend-tax-note")
+    assert text(user.find(marker="extend-tax-note")) == (
+        "Home county, which this was quoted at (7.25%), is no longer a tax rate. "
+        "Extending keeps 7.25%."
+    )
+
+
+async def test_extend_says_nothing_at_the_same_rate(user, conn):
+    saved = quoted_at(conn, rate_725(conn))
+    await open_saved(user, saved)
+    await start_extending(user)
+    await user.should_see(marker="new-valid-through")
+    await user.should_not_see(marker="extend-tax-note")
+    await user.should_not_see(marker="extend-revise")
+
+
+async def test_revise_from_extend_opens_a_revision_at_the_new_rate(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+    await start_extending(user)
+    user.find(marker="extend-revise").click()
+
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (New revision)")
+    await user.should_not_see(marker="confirm-extend")
+    await user.should_see("Home county's rate changed since")
+    assert saved_numbers(conn) == [saved.number]  # nothing stored yet
+    assert load_quote(conn, saved.number).valid_until == VALID_UNTIL  # not extended
+
+
+async def test_an_expired_quote_can_revise_from_extend(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate, valid_until=TODAY - timedelta(days=1))
+    rate_now_750(conn, rate)
+    await open_saved(user, saved)
+    await start_extending(user)
+    user.find(marker="extend-revise").click()
+
+    await eventually(lambda: heading(user) == f"{saved.number}-R1 (New revision)")
+
+
+async def test_extend_has_no_revise_when_the_rate_was_deleted(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    delete_tax_rate(conn, rate.id)
+    await open_saved(user, saved)
+    await start_extending(user)
+
+    await user.should_see(marker="extend-tax-note")
+    await user.should_not_see(marker="extend-revise")
+
+
+async def test_extend_has_no_revise_on_an_older_version(user, conn):
+    rate = rate_725(conn)
+    saved = quoted_at(conn, rate)
+    save_revision(conn, revision_draft(saved, 1))
+    rate_now_750(conn, rate)
+    await reload(user)
+    await open_version(user, saved.number, 0)
+    await start_extending(user)
+
+    await user.should_see(marker="extend-tax-note")
+    assert text(user.find(marker="extend-tax-note")) == (
+        "Home county's rate changed since this was quoted: 7.25% to 7.5%. "
+        "Extending keeps 7.25%. Draft R1 uses the new rate."
+    )
+    await user.should_not_see(marker="extend-revise")
 
 
 async def test_revise_is_beside_extend(user, conn):

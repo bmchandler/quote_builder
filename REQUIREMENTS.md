@@ -74,25 +74,19 @@ Future (not now):
   it and pick another rate, with a button to make the new rate first.
   The order matters: a user who moves drafts to a stand-in rate before
   the right one exists can lose track of which drafts to move again.
-- A tax rate changed since the last quote (noted 2026-10-25): a
-  revision draft takes its rate as it is now, so when that differs
-  from what the version before was quoted at, a banner near the top
-  says so ("Home county's rate changed since R1 was quoted: 7.25% to
-  7.5%"). No choice to keep the old rate: the customer is likely to
-  owe the tax in effect when the sale happens, so it's on the person
-  managing the quote to tell them. Whether Extend should say the
-  same, as an extended quote keeps its old rate, is to be settled.
-  With printing: a short note on the printout when the region's rate
-  changed since the previous quote or extension. To settle first:
-  what's usual when a rate changes after a quote is sent but while
-  it's still valid. Sales tax appears to be owed at the rate in effect
-  when the sale happens, not when it's quoted, with the seller owing
-  any shortfall; some states appear to have rules for contracts
-  signed before a change. Likely varies by state: check before
-  building. So the printout should also say that its tax is figured
-  at today's rates and may change if they do before the sale
-  (wording to settle); a final requote before the sale may be what
-  a careful business does.
+- A tax rate changed, on the printout (noted 2026-10-25): a short
+  note when the region's rate changed since the previous quote or
+  extension. Which rate applies appears to have no single rule
+  (looked into 2026-11-02): often the one in effect when the sale
+  completes, not when it's quoted, with the seller owing any
+  shortfall; some places appear to protect contracts signed before a
+  change, often with conditions; services may go by billing period or
+  by when the work is accepted. A quote usually isn't a signed
+  contract yet, so the old rate looks less likely to be protected.
+  Likely varies by state: check before building. So the printout
+  should also say that its tax is figured at today's rates and may
+  change if they do before the sale (wording to settle); a final
+  requote before the sale may be what a careful business does.
 - A simple dashboard (quote counts, extensions, and the like): counts
   per business or pilot and in all, drafts, and metrics around
   extensions (noted 2026-10-24). Likely a section opened as Settings
@@ -453,6 +447,34 @@ Built (as of 2026-11-01), each with tests:
     tax. The rate counts as a change for "Discard unsaved changes?".
     A quoted quote shows "Tax: Home county 7.25%" ("Tax: Untaxed"),
     and its lines say "taxed".
+  - Tax changed on a revision (decided 2026-11-02): a revision draft
+    takes its rate as it is now, so when its percent differs from what
+    the version before was quoted at, an amber banner under the heading
+    says so, following the Tax rate picked: "Home county's rate changed
+    since R1 was quoted: 7.25% to 7.5%"; with another rate picked, or
+    Untaxed, "Tax changed since R1 was quoted: Home county 7.25% to
+    Other county 6%"; with the rate since deleted and the draft left
+    Untaxed, "Home county, which R1 was quoted at (7.25%), is no
+    longer a tax rate." The first version goes by its number in place
+    of "R1". Same percent, no banner, even under a new name. It's only
+    told, not chosen for: which rate applies is the user's call. A new
+    quote has no banner, as nothing was quoted before it.
+  - Rate changed on a quoted quote (decided 2026-11-02): a Quoted one
+    shows the same banner when its rate has changed since: "Home
+    county's rate changed since this was quoted: 7.25% to 7.5%", or
+    "Home county, which this was quoted at (7.25%), is no longer a tax
+    rate." Expired and Superseded ones show none: their price isn't
+    live. Extend, on a Quoted or Expired quote, says the same in its
+    dialog, adding "Extending keeps 7.25%." and, when the rate still
+    exists, "To use the new rate, revise instead." with a Revise
+    button between Cancel and Extend, which opens the revision, so
+    the user needn't know to cancel first. An older version has no
+    such button, as it has no Revise; its newest is always a draft,
+    so it says "Draft R1 uses the new rate." instead (nothing, if the
+    draft has moved to another rate). A line that's only a status has
+    no period; more than one sentence takes them. Extending never
+    changes a quote's tax: its total is what the customer holds, so
+    the new rate comes through Revise.
   - Leaving a form with unsaved changes asks first (decided
     2026-10-19): New Quote, or opening another quote from the list,
     shows "Discard unsaved changes?" with Keep Editing and Discard; Esc
@@ -529,7 +551,10 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next: to be picked from Future.
+Next, in order (decided 2026-11-02):
+
+1. Customer edit and merge (see Future: Customers in Settings).
+2. Duplicating a quote.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

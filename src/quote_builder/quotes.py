@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quote_builder.business import TaxRate
 from quote_builder.customers import Customer
 
 
@@ -123,6 +124,74 @@ class SearchText:
     # detail (name, email, phone, address: 0 to 3); 0 for notes.
     position: int
     text: str
+
+
+def tax_change_note(before: Quote, draft: Quote) -> str | None:
+    """What a revision `draft` should say about its tax differing from
+    the quoted version `before` it; None if the percent is the same."""
+    if draft.tax_percent == before.tax_percent:
+        return None
+    name = f"R{before.revision}" if before.revision else before.number
+    if before.tax_rate_id is not None and before.tax_rate_id == draft.tax_rate_id:
+        return (
+            f"{draft.tax_name}'s rate changed since {name} was quoted: "
+            f"{before.tax_percent}% to {draft.tax_percent}%"
+        )
+    # A deleted rate leaves a quoted version its name, but no id.
+    if before.tax_name and before.tax_rate_id is None and not draft.tax_name:
+        return (
+            f"{before.tax_name}, which {name} was quoted at "
+            f"({before.tax_percent}%), is no longer a tax rate."
+        )
+    return (
+        f"Tax changed since {name} was quoted: "
+        f"{_tax_label(before)} to {_tax_label(draft)}"
+    )
+
+
+def rate_changed_note(quote: Quote, rate: TaxRate | None) -> str | None:
+    """What a quoted `quote` should say about its tax rate, `rate` as it
+    is now (None if deleted), differing from what it was quoted at;
+    None if it doesn't, or it's Untaxed."""
+    if not quote.tax_name:
+        return None
+    if rate is None:
+        return (
+            f"{quote.tax_name}, which this was quoted at "
+            f"({quote.tax_percent}%), is no longer a tax rate."
+        )
+    if rate.percent == quote.tax_percent:
+        return None
+    return (
+        f"{rate.name}'s rate changed since this was quoted: "
+        f"{quote.tax_percent}% to {rate.percent}%"
+    )
+
+
+def extend_tax_note(
+    quote: Quote, rate: TaxRate | None, draft: Quote | None = None
+) -> str | None:
+    """`rate_changed_note`, with what extending does about it. `draft` is
+    the newer draft, if `quote` has one: it can't be revised again."""
+    note = rate_changed_note(quote, rate)
+    if note is None:
+        return None
+    keeps = f"Extending keeps {quote.tax_percent}%."
+    if rate is None:
+        return f"{note} {keeps}"
+    if draft is None:
+        return f"{note}. {keeps} To use the new rate, revise instead."
+    # A draft moved to another rate doesn't use this one's new percent.
+    if draft.tax_rate_id != quote.tax_rate_id:
+        return f"{note}. {keeps}"
+    return f"{note}. {keeps} Draft R{draft.revision} uses the new rate."
+
+
+def _tax_label(quote: Quote) -> str:
+    """`Home county 7.25%`, or `Untaxed`."""
+    if not quote.tax_name:
+        return "Untaxed"
+    return f"{quote.tax_name} {quote.tax_percent}%"
 
 
 def revision_draft(quote: Quote, revision: int) -> Quote:
