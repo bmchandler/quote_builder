@@ -49,6 +49,9 @@ Future (not now):
   of details was ruled out).
   A quote without a customer gets a space on the printout to write a
   name or a note by hand (noted 2026-11-01).
+  Whether and how a customer sees a line's unit ("3 hours") is to be
+  settled with it (noted 2026-11-01): a line has no unit today, and
+  a field for one is tight in a line's row at the window's width.
 - A banner image at the top left instead of the business's name.
 - Customers in Settings, or a view like it (noted 2026-11-01): not
   for adding (that's done from a quote), but for fixing details,
@@ -137,7 +140,12 @@ are worked out with `Decimal` and rounded to the cent where shown.
   their sum.
 - **Catalog item**: a reusable service or part, with a description,
   default price, unit (hour, each, flat, and so on), and whether it's
-  taxable (often not, for a service).
+  taxable (often not, for a service). A description is needed; the
+  rest is optional, a blank price being for work priced job by job.
+  Kept per business. The unit is for the business user choosing an
+  item, and stays in the catalog (decided 2026-11-01; see Future).
+  A line copies from an item and keeps no link to it, so changing or
+  deleting an item never touches a quote.
 - **Quote**: number, customer (optional), tax rate, date issued, valid-through
   date, status, notes, and line items.
 - **Line item**: description, quantity, unit price, discount, and
@@ -159,7 +167,7 @@ that changes is changed once. A quote takes the business's default
 tax rate, changeable for a job elsewhere, or Untaxed (an exempt
 customer). Each line is taxed or not (decided 2026-10-25): taxed
 lines all use the quote's rate, so a line can't have a rate of its
-own; picking a catalog item will tick it if the item is taxable. A
+own; picking a catalog item ticks it if the item is taxable. A
 draft follows its rate as it is now, so a county's change reaches
 drafts already written; marking it Quoted keeps the rate's name and
 percent with the quote, with its figures, so a later change to the
@@ -289,7 +297,8 @@ Built (as of 2026-11-01), each with tests:
   default) so far. Every quote belongs to one, and
   every version of it to the same one. The business picked last is
   remembered (decided 2026-10-24), so the app opens on it. Customers
-  (customers.py), each a business's, and a quote's customer.
+  (customers.py), each a business's, and a quote's customer. Catalog
+  items (catalog.py), each a business's.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -355,6 +364,24 @@ Built (as of 2026-11-01), each with tests:
     drafts would lose their tax without a word. A quoted quote keeps
     its own copy, so it doesn't hold a delete up. For now; a guided
     flow is planned (see Future).
+  - Catalog (decided 2026-11-01): in Settings' side panel, below the
+    divider and above Back to Quotes, a Catalog button opens, on the
+    right, the catalog of the business picked in the list, headed
+    "Catalog: John Doe's Lawn Service". It's off for a new business
+    until saved. Clicking a business, even that one, goes back to its
+    settings. One row per item ("Mow lawn · $45.00 / hour"), by
+    description in any case, and "Add catalog item…". Adding or
+    clicking one opens a dialog: Description, Default price, Unit (its
+    example "hour, each, flat, etc."), and Taxable. It saves on its
+    own, as a tax rate's does; an item already saved has Delete.
+  - Add from catalog (decided 2026-11-01): once the business has an
+    item, a field beside a draft's Add Line. Typing narrows the items
+    by description, price, or unit, each shown as its description with
+    "$45.00 / hour" below. Picking one adds a line of it: its
+    description, quantity 1, its price (blank if it has none), and
+    Taxed ticked if it's taxable; all can then be changed for this
+    quote only. It fills a last line that's still blank instead, as a
+    new quote opens with one. The field then clears for the next pick.
   - The top left (decided 2026-10-24) shows "Quote Builder" until the
     business has a name, then the name, in italics for a pilot. Once
     there's a second, it's a dropdown of all the names, in the same
@@ -479,9 +506,7 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next, growing the screen, storage, and tests together in small steps:
-
-1. The catalog.
+Next: to be picked from Future.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

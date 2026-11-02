@@ -115,6 +115,11 @@ of one: a second copy drifts, and can mask a problem in this file.
   trade-offs? would it override stock behavior?), then wait for a clear
   instruction. Avoid overriding framework defaults unless the user
   decides to.
+- Keep questions tightly targeted at the current work. A question
+  that doesn't have to be settled now goes in REQUIREMENTS.md (or the
+  like), to settle when that part gets built, unless it heavily should
+  be nailed down now. UI/UX targets whoever the app is for at this
+  stage: a question about a later audience waits for that part.
 - The user is learning from the code: point out good practices (and
   traps met) when reporting a change, briefly.
 
@@ -151,6 +156,8 @@ of one: a second copy drifts, and can mask a problem in this file.
 
 - Branches: still committing on `main`; the `dev`/`main` pattern
   (above) isn't set up here yet, until the user decides to.
+- UI/UX targets the business user for now, not the customer: what a
+  customer sees is settled when building the parts they see.
 - Check screen changes in the browser pane before handing over: a
   scratch script (outside the repo) that seeds a scratch database with
   made-up quotes and runs `ui.run(quote_page(conn), port=..., show=False,
@@ -176,8 +183,8 @@ of one: a second copy drifts, and can mask a problem in this file.
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
   `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`),
   business.py (`Business`: a business's settings; `TaxRate`,
-  `TaxPart`), customers.py (`Customer`), money.py
-  and dates.py (text in and out: `parse_*` raise ValueError with a
+  `TaxPart`), customers.py (`Customer`), catalog.py (`CatalogItem`),
+  money.py and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
   search.py (search matches: escaped HTML with `<mark>`, excerpts),
   storage.py + schema.sql (all SQL), app.py (NiceGUI only; calls the

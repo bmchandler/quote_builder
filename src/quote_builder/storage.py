@@ -13,6 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
@@ -313,6 +314,53 @@ def add_customer(conn: sqlite3.Connection, customer: Customer) -> Customer:
             vars(customer),
         ).fetchone()
     return replace(customer, id=row["id"])
+
+
+def list_catalog_items(conn: sqlite3.Connection, business_id: int) -> list[CatalogItem]:
+    """A business's catalog by description, in any case."""
+    rows = conn.execute(
+        """
+        SELECT id, business_id, description, price_cents, unit, taxable
+        FROM catalog_items
+        WHERE business_id = ?
+        ORDER BY description COLLATE NOCASE, id
+        """,
+        (business_id,),
+    ).fetchall()
+    return [
+        CatalogItem(**(dict(row) | {"taxable": bool(row["taxable"])})) for row in rows
+    ]
+
+
+def save_catalog_item(conn: sqlite3.Connection, item: CatalogItem) -> CatalogItem:
+    """Store a catalog item, new or changed; returns a copy with its id."""
+    with conn:
+        if item.id is not None:
+            conn.execute(
+                """
+                UPDATE catalog_items
+                SET description = :description, price_cents = :price_cents,
+                    unit = :unit, taxable = :taxable
+                WHERE id = :id
+                """,
+                vars(item),
+            )
+            return item
+        row = conn.execute(
+            """
+            INSERT INTO catalog_items
+                (business_id, description, price_cents, unit, taxable)
+            VALUES (:business_id, :description, :price_cents, :unit, :taxable)
+            RETURNING id
+            """,
+            vars(item),
+        ).fetchone()
+    return replace(item, id=row["id"])
+
+
+def delete_catalog_item(conn: sqlite3.Connection, item_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM catalog_items WHERE id = ?", (item_id,))
 
 
 def _customers_now(

@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.quotes import (
     Extension,
@@ -29,6 +30,9 @@ from quote_builder.storage import (
     add_customer,
     connect,
     current_business,
+    delete_catalog_item,
+    list_catalog_items,
+    save_catalog_item,
     delete_tax_rate,
     expire_overdue,
     extend_quote,
@@ -855,6 +859,37 @@ def test_customers_listed_by_name_per_business(conn):
     acme = add_business(conn, Business(name="Acme"))
     add_customer(conn, Customer(acme.id, "Acme's customer"))
     assert list_customers(conn, BUSINESS) == [doe, sam]
+
+
+def test_catalog_listed_by_description_per_business(conn):
+    mulch = save_catalog_item(conn, CatalogItem(BUSINESS, "mulch", 650, "each", True))
+    edging = save_catalog_item(conn, CatalogItem(BUSINESS, "Edging"))
+    acme = add_business(conn, Business(name="Acme"))
+    save_catalog_item(conn, CatalogItem(acme.id, "Acme's item"))
+    assert list_catalog_items(conn, BUSINESS) == [edging, mulch]
+
+
+def test_change_a_catalog_item(conn):
+    item = save_catalog_item(conn, CatalogItem(BUSINESS, "Mow", 4500, "hour"))
+    changed = replace(item, description="Mow lawn", price_cents=None, taxable=True)
+    assert save_catalog_item(conn, changed) == changed
+    assert list_catalog_items(conn, BUSINESS) == [changed]
+
+
+def test_delete_a_catalog_item(conn):
+    item = save_catalog_item(conn, CatalogItem(BUSINESS, "Mow"))
+    delete_catalog_item(conn, item.id)
+    assert list_catalog_items(conn, BUSINESS) == []
+
+
+def test_a_catalog_item_needs_a_description(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        save_catalog_item(conn, CatalogItem(BUSINESS))
+
+
+def test_a_catalog_price_cant_be_negative(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        save_catalog_item(conn, CatalogItem(BUSINESS, "Mow", -1))
 
 
 def test_a_customer_needs_a_name(conn):

@@ -14,6 +14,7 @@ from typing import NamedTuple
 from nicegui import ui
 
 from quote_builder.business import Business, TaxPart, TaxRate, check_tax_rate
+from quote_builder.catalog import CatalogItem, check_catalog_item
 from quote_builder.customers import Customer, check_customer, same_name
 from quote_builder.data_folder import data_folder
 from quote_builder.dates import (
@@ -52,10 +53,12 @@ from quote_builder.storage import (
     add_customer,
     connect,
     current_business,
+    delete_catalog_item,
     delete_tax_rate,
     expire_overdue,
     extend_quote,
     list_businesses,
+    list_catalog_items,
     list_customers,
     list_quotes,
     list_tax_rates,
@@ -64,6 +67,7 @@ from quote_builder.storage import (
     mark_quoted,
     pick_business,
     save_business,
+    save_catalog_item,
     save_draft,
     save_new_quote,
     save_revision,
@@ -98,6 +102,7 @@ def quote_page(
         editor: Editor | None = None  # the form on the right, if any
         # The business whose settings are on the right, while in Settings.
         settings_for: Business | None = None
+        catalog_open = False  # that business's catalog is on the right instead
 
         def search_term() -> str:
             return (search.value or "").strip()
@@ -149,13 +154,26 @@ def quote_page(
         def show_business(business: Business) -> None:
             """Show a business's settings on the right, in Settings; a new
             one's if its id is None."""
-            nonlocal current, editor, settings_for
+            nonlocal current, editor, settings_for, catalog_open
             current = None
             settings_for = business
+            catalog_open = False
             body.clear()
             with body:
                 editor = business_settings(conn, business, on_saved=show_business)
+            # A new business gets a catalog once saved, as it does tax rates.
+            catalog_button.set_enabled(business.id is not None)
             business_list.refresh()  # its name or kind may have changed
+
+        async def open_catalog() -> None:
+            """Show the catalog of the business picked in Settings."""
+            nonlocal editor, catalog_open
+            if await may_leave():
+                editor = None  # its dialog saves on its own: nothing to ask
+                catalog_open = True
+                body.clear()
+                with body:
+                    catalog_view(conn, settings_for)
 
         async def open_settings() -> None:
             """Settings takes over the side panel, opening on the business
@@ -166,7 +184,11 @@ def quote_page(
                 show_business(current_business(conn))
 
         async def open_business(business: Business) -> None:
-            if settings_for is not None and business.id == settings_for.id:
+            if (
+                settings_for is not None
+                and business.id == settings_for.id
+                and not catalog_open
+            ):
                 return  # already open
             if await may_leave():
                 show_business(business)
@@ -375,6 +397,11 @@ def quote_page(
                     "Add business or pilot…", icon="add", on_click=new_business
                 ).props("flat no-caps").mark("add-business")
             ui.separator()
+            catalog_button = (
+                ui.button("Catalog", icon="inventory_2", on_click=open_catalog)
+                .props("flat no-caps")
+                .mark("catalog")
+            )
             # Where Settings was, so one spot opens and closes it.
             ui.button(
                 "Back to Quotes", icon="arrow_back", on_click=back_to_quotes
@@ -658,7 +685,7 @@ def tax_rates(conn: sqlite3.Connection, business_id: int) -> None:
     rate_list()
 
 
-DELETE = object()  # ask_tax_rate's answer when Delete is clicked
+DELETE = object()  # a dialog's answer when Delete is clicked
 UNTAXED = "untaxed"  # the Tax rate choice for no rate (the others are ids)
 
 
@@ -778,6 +805,111 @@ async def ask_tax_rate(rate: TaxRate) -> TaxRate | object | None:
     return answer
 
 
+def catalog_view(conn: sqlite3.Connection, business: Business) -> None:
+    """A business's catalog. The dialog that adds or changes an item saves
+    it at once, as a tax rate's does."""
+    label = ui.label(f"Catalog: {business_name(business)}")
+    label.classes("text-h6").mark("heading")
+    if business.pilot:
+        label.classes("italic")
+
+    async def edit(item: CatalogItem) -> None:
+        answer = await ask_catalog_item(item)
+        if answer is DELETE:
+            delete_catalog_item(conn, item.id)
+            ui.notify(f"Deleted {item.description}")
+        elif answer is not None:
+            save_catalog_item(conn, answer)
+            ui.notify(f"Saved {answer.description}")
+        item_list.refresh()
+
+    @ui.refreshable
+    def item_list() -> None:
+        items = list_catalog_items(conn, business.id)
+        if items:
+            with ui.list().props("separator bordered").classes("w-full rounded"):
+                for item in items:
+                    parts = (item.description, item.price_text)
+                    row = ui.item(
+                        " · ".join(part for part in parts if part),
+                        on_click=lambda i=item: edit(i),
+                    )
+                    row.props("clickable").mark(f"catalog-item-{item.id}")
+        ui.button(
+            "Add catalog item…",
+            icon="add",
+            on_click=lambda: edit(CatalogItem(business.id)),
+        ).props("flat no-caps").mark("add-catalog-item")
+
+    item_list()
+
+
+async def ask_catalog_item(item: CatalogItem) -> CatalogItem | object | None:
+    """Ask for a catalog item's details: the item as changed, DELETE, or
+    None if the user cancels. A new one (no id) can't be deleted."""
+    with ui.dialog() as dialog, ui.card().classes("min-w-[28rem]"):
+        ui.label("Add catalog item" if item.id is None else "Edit catalog item").classes(
+            "text-h6"
+        )
+        description = (
+            ui.input("Description", value=item.description)
+            .classes("w-full")
+            .mark("catalog-description")
+        )
+        price = (
+            ui.input(
+                "Default price",
+                value="" if item.price_cents is None else format_money(item.price_cents),
+            )
+            .classes("w-full")
+            .mark("catalog-price")
+        )
+        # stack-label and greyed, as the business's Name is.
+        unit = (
+            ui.input("Unit", value=item.unit, placeholder="hour, each, flat, etc.")
+            .props('stack-label input-class="placeholder:text-gray-400"')
+            .classes("w-full")
+            .mark("catalog-unit")
+        )
+        taxable = ui.checkbox("Taxable", value=item.taxable).mark("catalog-taxable")
+
+        def changed_item() -> CatalogItem:
+            """The item as typed; ValueError says what's wrong."""
+            typed_price = (price.value or "").strip()
+            try:
+                cents = parse_money(typed_price) if typed_price else None
+            except ValueError as problem:
+                raise ValueError(f"Default price: {problem}") from None
+            changed = replace(
+                item,
+                description=(description.value or "").strip(),
+                price_cents=cents,
+                unit=(unit.value or "").strip(),
+                taxable=taxable.value,
+            )
+            check_catalog_item(changed)
+            return changed
+
+        def confirm() -> None:
+            try:
+                dialog.submit(changed_item())
+            except ValueError as problem:
+                ui.notify(str(problem), type="negative")
+
+        with ui.row().classes("w-full items-center"):
+            if item.id is not None:
+                ui.button("Delete", on_click=lambda: dialog.submit(DELETE)).props(
+                    "flat color=negative"
+                ).mark("delete-catalog-item")
+            ui.space()
+            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button("Save", on_click=confirm).mark("save-catalog-item")
+    # Esc or a click outside closes it with None, as Cancel does.
+    answer = await dialog
+    dialog.delete()
+    return answer
+
+
 def quote_list_item(
     summary: QuoteSummary,
     selected: bool,
@@ -888,6 +1020,16 @@ class LineInputs:
                 "flat dense"
             ).mark(f"remove-{marker}")
 
+    def is_blank(self) -> bool:
+        """True if nothing's been entered: as a new line starts."""
+        return (
+            not self.description.value.strip()
+            and self.quantity.value.strip() == "1"
+            and not self.price.value.strip()
+            and not self.discount.value.strip()
+            and not self.taxed.value
+        )
+
     def item(self) -> LineItem:
         """The line as typed; ValueError if a number doesn't read.
 
@@ -908,7 +1050,8 @@ class LineInputs:
 # tells customers of the same name apart. A choice's label is both, on
 # two lines (customer_label), so typing finds a customer by any of it:
 # NiceGUI filters the choices by label. Vue's {{ }} escapes the text.
-CUSTOMER_OPTION = r"""
+# Add from catalog draws its choices the same way.
+TWO_LINE_OPTION = r"""
 <q-item v-bind="props.itemProps">
   <q-item-section>
     <q-item-label>{{ props.opt.label.split('\n')[0] }}</q-item-label>
@@ -957,7 +1100,7 @@ class CustomerPicker:
         # and hides the choice; here the choice shows (by the template
         # below) and the input only takes what's typed.
         self.select.props(remove="fill-input hide-selected")
-        self.select.add_slot("option", CUSTOMER_OPTION)
+        self.select.add_slot("option", TWO_LINE_OPTION)
         self.select.add_slot("selected-item", CUSTOMER_SELECTED)
         self.select.on("input-value", lambda e: self.typing(e.args or ""))
         # After the choices, or in their place when none match.
@@ -1152,19 +1295,57 @@ def quote_editor(
     lines: list[LineInputs] = []  # in order on the quote
     added = 0  # lines ever added, so each gets its own test marker
 
-    def add_line(item: LineItem | None = None) -> None:
+    def add_line(item: LineItem | None = None) -> LineInputs:
         nonlocal added
         added += 1
         with lines_column:
-            lines.append(LineInputs(added, item, update_totals, remove))
+            line = LineInputs(added, item, update_totals, remove)
+        lines.append(line)
         update_totals()
+        return line
 
     def remove(line: LineInputs) -> None:
         lines.remove(line)
         lines_column.remove(line.row)
         update_totals()
 
-    ui.button("Add Line", on_click=lambda: add_line())
+    catalog = {item.id: item for item in list_catalog_items(conn, quote.business_id)}
+
+    def add_from_catalog() -> None:
+        item = catalog.get(from_catalog.value)
+        if item is None:
+            return  # the field being cleared, below
+        # In place of a blank line, as a new quote opens with one, which
+        # Save would otherwise refuse.
+        if lines and lines[-1].is_blank():
+            remove(lines[-1])
+        line = add_line(item.as_line())
+        if item.price_cents is None:
+            line.price.value = ""  # priced job by job: left to type
+        # Ready for the next pick.
+        from_catalog.value = None
+        from_catalog.run_method("updateInputValue", "")
+        # Clearing the typing would otherwise leave the choices open.
+        from_catalog.run_method("hidePopup")
+
+    with ui.row().classes("items-center"):
+        ui.button("Add Line", on_click=lambda: add_line())
+        # Only once there's something to pick.
+        if catalog:
+            from_catalog = (
+                ui.select(
+                    {
+                        item.id: f"{item.description}\n{item.price_text}"
+                        for item in catalog.values()
+                    },
+                    label="Add from catalog",
+                    with_input=True,
+                    on_change=add_from_catalog,
+                )
+                .classes("w-64")
+                .mark("add-from-catalog")
+            )
+            from_catalog.add_slot("option", TWO_LINE_OPTION)
 
     @ui.refreshable
     def foot() -> None:

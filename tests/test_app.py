@@ -12,6 +12,7 @@ from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
@@ -20,6 +21,7 @@ from quote_builder.storage import (
     connect,
     current_business,
     list_businesses,
+    list_catalog_items,
     list_customers,
     list_quotes,
     list_tax_rates,
@@ -27,6 +29,7 @@ from quote_builder.storage import (
     mark_quoted,
     pick_business,
     save_business,
+    save_catalog_item,
     save_new_quote,
     save_revision,
     save_tax_rate,
@@ -1693,6 +1696,259 @@ async def test_a_new_business_gets_tax_rates_once_saved(user):
     user.find(marker="add-business").click()
     await eventually(lambda: heading(user) == "New business or pilot")
     await user.should_not_see(marker="add-tax-rate")
+
+
+def mow(conn, **changes):
+    item = CatalogItem(BUSINESS, "Mow lawn", 4500, "hour")
+    return save_catalog_item(conn, replace(item, **changes))
+
+
+async def open_catalog(user):
+    await open_settings(user)
+    user.find(marker="catalog").click()
+    await user.should_see(marker="add-catalog-item")
+
+
+async def add_catalog_item(user):
+    user.find(marker="add-catalog-item").click()
+    await user.should_see(marker="catalog-description")
+
+
+def pick_from_catalog(user, item):
+    [select] = user.find(marker="add-from-catalog").elements
+    with user.client:
+        select.value = item.id
+
+
+async def test_add_a_catalog_item(user, conn):
+    await open_catalog(user)
+    assert heading(user) == "Catalog: Unnamed business"
+    await add_catalog_item(user)
+    user.find(marker="catalog-description").type("Mulch")
+    user.find(marker="catalog-price").type("$6.50")
+    user.find(marker="catalog-unit").type("each")
+    user.find(marker="catalog-taxable").click()
+    user.find(marker="save-catalog-item").click()
+
+    await user.should_see("Saved Mulch")
+    await user.should_see("Mulch · $6.50 / each")
+    [item] = list_catalog_items(conn, BUSINESS)
+    assert (item.description, item.price_cents, item.unit, item.taxable) == (
+        "Mulch",
+        650,
+        "each",
+        True,
+    )
+
+
+async def test_a_catalog_item_needs_only_a_description(user, conn):
+    await open_catalog(user)
+    await add_catalog_item(user)
+    user.find(marker="save-catalog-item").click()
+    await user.should_see("A catalog item needs a description")
+    assert list_catalog_items(conn, BUSINESS) == []
+
+    user.find(marker="catalog-description").type("Yard cleanup")
+    user.find(marker="save-catalog-item").click()
+    await user.should_see("Saved Yard cleanup")
+    [item] = list_catalog_items(conn, BUSINESS)
+    assert item.price_cents is None
+
+
+async def test_a_catalog_price_says_what_doesnt_read(user, conn):
+    await open_catalog(user)
+    await add_catalog_item(user)
+    user.find(marker="catalog-description").type("Mulch")
+    user.find(marker="catalog-price").type("lots")
+    user.find(marker="save-catalog-item").click()
+    await user.should_see("Default price: 'lots' isn't an amount")
+    assert list_catalog_items(conn, BUSINESS) == []
+
+
+async def test_edit_a_catalog_item(user, conn):
+    item = mow(conn)
+    await open_catalog(user)
+    user.find(marker=f"catalog-item-{item.id}").click()
+    await user.should_see("Edit catalog item")
+    assert value(user.find(marker="catalog-price")) == "$45.00"
+    user.find(marker="catalog-unit").clear().type("flat")
+    user.find(marker="save-catalog-item").click()
+
+    await user.should_see("Mow lawn · $45.00 / flat")
+    assert list_catalog_items(conn, BUSINESS) == [replace(item, unit="flat")]
+
+
+async def test_delete_a_catalog_item(user, conn):
+    item = mow(conn)
+    await open_catalog(user)
+    user.find(marker=f"catalog-item-{item.id}").click()
+    await user.should_see("Edit catalog item")
+    user.find(marker="delete-catalog-item").click()
+
+    await user.should_see("Deleted Mow lawn")
+    await user.should_not_see(marker=f"catalog-item-{item.id}")
+    assert list_catalog_items(conn, BUSINESS) == []
+
+
+async def test_a_new_catalog_item_cant_be_deleted(user):
+    await open_catalog(user)
+    await add_catalog_item(user)
+    await user.should_not_see(marker="delete-catalog-item")
+
+
+async def test_cancel_leaves_the_catalog_alone(user, conn):
+    await open_catalog(user)
+    await add_catalog_item(user)
+    user.find(marker="catalog-description").type("Mulch")
+    user.find(kind=ui.button, content="Cancel").click()
+
+    await user.should_not_see(marker="catalog-description")
+    assert list_catalog_items(conn, BUSINESS) == []
+
+
+async def test_catalog_follows_the_business_picked_in_settings(user, conn):
+    mow(conn)
+    [acme] = businesses(conn, "Acme")
+    await open_settings(user)
+    user.find(marker=f"business-{acme.id}").click()
+    await eventually(lambda: heading(user) == "Acme")
+    user.find(marker="catalog").click()
+
+    await eventually(lambda: heading(user) == "Catalog: Acme")
+    await user.should_not_see("Mow lawn")
+
+
+async def test_the_business_open_goes_back_from_its_catalog(user, conn):
+    business = current_business(conn)
+    await open_catalog(user)
+    user.find(marker=f"business-{business.id}").click()
+    await user.should_see(marker="business-name")
+
+
+async def test_a_new_business_gets_a_catalog_once_saved(user):
+    await open_settings(user)
+    [catalog] = user.find(marker="catalog").elements
+    assert catalog.enabled
+    user.find(marker="add-business").click()
+    await eventually(lambda: heading(user) == "New business or pilot")
+    assert not catalog.enabled
+
+    user.find(marker="business-name").type("Acme")
+    user.find(kind=ui.button, content="Save").click()
+    await eventually(lambda: heading(user) == "Acme")
+    assert catalog.enabled
+
+
+async def test_unsaved_settings_ask_before_opening_the_catalog(user):
+    await open_settings(user)
+    user.find(marker="business-name").type("Acme")
+    user.find(marker="catalog").click()
+    await user.should_see("Discard unsaved changes?")
+
+
+async def test_no_catalog_field_until_theres_an_item(user):
+    await new_quote(user)
+    await user.should_not_see(marker="add-from-catalog")
+
+
+async def test_catalog_field_shows_this_businesss_items(user, conn):
+    item = mow(conn)
+    acme = add_business(conn, Business(name="Acme"))
+    other = save_catalog_item(conn, CatalogItem(acme.id, "Acme's item"))
+    await new_quote(user)
+    [select] = user.find(marker="add-from-catalog").elements
+    assert select.options == {item.id: "Mow lawn\n$45.00 / hour"}
+    assert other.id not in select.options
+
+
+async def test_picking_fills_the_blank_line_and_saves(user, conn):
+    item = mow(conn, taxable=True)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+
+    await user.should_see(marker="description-2")
+    await user.should_not_see(marker="description-1")
+    assert value(user.find(marker="description-2")) == "Mow lawn"
+    assert value(user.find(marker="quantity-2")) == "1"
+    assert value(user.find(marker="price-2")) == "$45.00"
+    [taxed] = user.find(marker="taxed-2").elements
+    assert taxed.value
+    [select] = user.find(marker="add-from-catalog").elements
+    assert select.value is None  # ready for the next pick
+
+    user.find(kind=ui.button, content="Save").click()
+    await user.should_see("Saved Q-")
+    [summary] = list_quotes(conn, BUSINESS)
+    [line] = load_quote(conn, summary.number).line_items
+    assert line == LineItem("Mow lawn", Decimal(1), 4500, taxed=True)
+
+
+async def test_picking_keeps_a_line_already_started(user, conn):
+    item = mow(conn)
+    await new_quote(user)
+    user.find(marker="description-1").type("Trip fee")
+    pick_from_catalog(user, item)
+
+    await user.should_see(marker="description-2")
+    assert value(user.find(marker="description-1")) == "Trip fee"
+    assert value(user.find(marker="description-2")) == "Mow lawn"
+
+
+async def test_picking_twice_adds_two_lines(user, conn):
+    item = mow(conn)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-3")
+    assert value(user.find(marker="description-2")) == "Mow lawn"
+    assert value(user.find(marker="description-3")) == "Mow lawn"
+
+
+async def test_an_item_without_a_price_leaves_it_to_type(user, conn):
+    item = mow(conn, price_cents=None)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+    assert value(user.find(marker="price-2")) == ""
+
+
+async def test_a_picked_line_changes_for_this_quote_only(user, conn):
+    item = mow(conn)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+    user.find(marker="price-2").clear().type("50")
+    user.find(kind=ui.button, content="Save").click()
+    await user.should_see("Saved Q-")
+
+    assert list_catalog_items(conn, BUSINESS) == [item]
+    [summary] = list_quotes(conn, BUSINESS)
+    [line] = load_quote(conn, summary.number).line_items
+    assert line.unit_price_cents == 5000
+
+
+async def test_changing_the_catalog_leaves_a_line_alone(user, conn):
+    item = mow(conn)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+    user.find(kind=ui.button, content="Save").click()
+    await user.should_see("Saved Q-")
+    [summary] = list_quotes(conn, BUSINESS)
+
+    save_catalog_item(conn, replace(item, price_cents=9900))
+    [line] = load_quote(conn, summary.number).line_items
+    assert line.unit_price_cents == 4500
+
+
+async def test_a_picked_line_counts_as_a_change(user, conn):
+    item = mow(conn)
+    await new_quote(user)
+    pick_from_catalog(user, item)
+    await user.should_see(marker="description-2")
+    user.find(marker="settings").click()
+    await user.should_see("Discard unsaved changes?")
 
 
 def jane(conn, **changes):

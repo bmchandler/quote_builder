@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS customers (
     UNIQUE (business_id, id)
 ) STRICT;
 
+-- A business's services and parts. A line copies what it needs, so nothing
+-- points here and an item can always be changed or deleted.
+CREATE TABLE IF NOT EXISTS catalog_items (
+    id          INTEGER PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES businesses (id),
+    description TEXT    NOT NULL CHECK (description != ''),
+    price_cents INTEGER CHECK (price_cents >= 0),  -- NULL: priced job by job
+    unit        TEXT    NOT NULL DEFAULT '',
+    taxable     INTEGER NOT NULL DEFAULT 0 CHECK (taxable IN (0, 1))
+) STRICT;
+
 -- What the app remembers between runs: one row at most (id 1).
 CREATE TABLE IF NOT EXISTS app_state (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
