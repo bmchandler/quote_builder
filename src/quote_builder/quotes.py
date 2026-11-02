@@ -11,15 +11,12 @@ from quote_builder.customers import Customer
 class Status(StrEnum):
     DRAFT = "Draft"
     QUOTED = "Quoted"
-    ACCEPTED = "Accepted"
-    DECLINED = "Declined"
     EXPIRED = "Expired"
     SUPERSEDED = "Superseded"
 
 
-# Statuses a quote can be revised from (not Accepted: a change after
-# acceptance is a matter for invoicing, later).
-REVISABLE = (Status.QUOTED, Status.DECLINED, Status.EXPIRED)
+# Statuses a quote can be revised from.
+REVISABLE = (Status.QUOTED, Status.EXPIRED)
 
 
 def version_name(number: str, revision: int) -> str:

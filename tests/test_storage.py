@@ -360,6 +360,16 @@ def test_quoted_needs_its_frozen_totals(conn):
         )
 
 
+@pytest.mark.parametrize("status", ["Accepted", "Declined"])
+def test_a_quotes_outcome_isnt_a_status(conn, status):
+    # Out of scope: the app doesn't follow a quote to its outcome.
+    quoted = quoted_lawn(conn)
+    with pytest.raises(sqlite3.IntegrityError), conn:
+        conn.execute(
+            "UPDATE quotes SET status = ? WHERE number = ?", (status, quoted.number)
+        )
+
+
 def test_draft_has_no_frozen_totals(conn):
     saved = save_new_quote(conn, lawn_quote(), numbers("Q-7KQ-M9XD"))
     loaded = load_quote(conn, saved.number)

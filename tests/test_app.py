@@ -894,6 +894,12 @@ async def test_revise_opens_a_copy_not_yet_saved(user, conn):
     assert load_quote(conn, saved.number).status is Status.QUOTED
 
 
+async def test_an_expired_quote_can_be_revised(user, conn):
+    saved = quoted(conn, valid_until=TODAY - timedelta(days=1))
+    await start_revising(user, saved)
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+
+
 async def test_revise_is_beside_extend(user, conn):
     saved = quoted(conn)
     await open_saved(user, saved)

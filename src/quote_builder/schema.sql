@@ -80,8 +80,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     number      TEXT    NOT NULL,                -- Q-7KQ-M9XD
     revision    INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     status      TEXT    NOT NULL DEFAULT 'Draft' CHECK (status IN
-                    ('Draft', 'Quoted', 'Accepted', 'Declined', 'Expired',
-                     'Superseded')),
+                    ('Draft', 'Quoted', 'Expired', 'Superseded')),
     issued_on   TEXT,
     valid_until TEXT,
     notes       TEXT    NOT NULL DEFAULT '',

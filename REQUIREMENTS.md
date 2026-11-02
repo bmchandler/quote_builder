@@ -2,10 +2,10 @@
 
 ## Purpose
 
-A simple desktop app for building and tracking quotes, for micro
-businesses and solo consultants: odd software jobs, yard work, house
-cleaning, and the like. Built for real use by its owner for freelance
-work first, and as a portfolio piece second.
+A simple desktop app for building quotes to give to customers, for
+micro businesses and solo consultants: odd software jobs, yard work,
+house cleaning, and the like. Built for real use by its owner for
+freelance work first, and as a portfolio piece second.
 
 ## Scope
 
@@ -24,17 +24,22 @@ In scope:
 - Local storage in SQLite.
 - Business details and settings, customers, a catalog of reusable
   services, and quotes made of line items.
-- Tracking each quote's status.
+- Each quote's status up to giving it to the customer: whether it's
+  still a draft, still valid, or replaced by a newer version.
 
 Out of scope:
 
 - More than one user, and syncing between machines.
 - Installers or packaging beyond what uv gives.
 - Sending email from the app.
+- Following a quote to its outcome, such as accepted or declined, or
+  any tracking at that level (decided 2026-11-02). The app builds
+  quotes to give to customers; what happens after is up to the user,
+  whose way of handling acceptance could be anything.
 
 Future (not now):
 
-- Turning an accepted quote into an invoice.
+- Turning a quote into an invoice.
 - Duplicating a quote, or quote templates.
 - CSV export.
 - Printing a quote, and exporting it as a PDF (put off until much
@@ -60,6 +65,10 @@ Future (not now):
   quotes is refused.
 - Archiving or purging old quotes (noted 2026-11-01), which would
   then let customers left without quotes be cleaned up safely.
+  Brainstorm, nothing decided (noted 2026-11-02): an Archived area to
+  search, holding each quote as its printed or PDF version, with
+  export and delete: delete anything before a certain year, say, or
+  first export the PDFs as a tar.gz to keep a digital copy.
 - Deleting a tax rate drafts use, guided (noted 2026-10-25): in place
   of the refusal, a dialog listing those drafts, each a link to open
   it and pick another rate, with a button to make the new rate first.
@@ -233,14 +242,16 @@ Revisions (decided 2026-10-17):
   valid-through date still counts.
 - Once the revision is quoted, the version before it becomes
   Superseded: read-only, kept for history.
-- Quoted, Declined, and Expired quotes can be revised; Accepted ones
-  can't (a change after acceptance is a matter for invoicing, later).
+- Quoted and Expired quotes can be revised, even if the customer has
+  accepted one (decided 2026-11-02): something unknown to both may
+  turn up mid-work. The app assumes the user revises only when that
+  makes sense.
 - Each revision has its own valid-through date, and its own
   extensions.
 
-Quote statuses: Draft, Quoted, Accepted, Declined, Expired, and
-Superseded for a revised version (Quoted, not Sent, as a quote may be
-given in person; decided 2026-10-17). A Quoted quote becomes Expired
+Quote statuses: Draft, Quoted, Expired, and Superseded for a revised
+version (Quoted, not Sent, as a quote may be given in person; decided
+2026-10-17). A Quoted quote becomes Expired
 on its own once past its valid-through date (decided 2026-10-17).
 
 A quote's date is its last good day, inclusive, and always worded
@@ -478,7 +489,7 @@ Built (as of 2026-11-01), each with tests:
     quote shows "Extended once; first valid through 11/18/2026" (or
     "2 times", and so on).
   - Revisions (decided 2026-10-19): Revise, right of Extend on the
-    newest version when it's Quoted, Declined, or Expired, opens a
+    newest version when it's Quoted or Expired, opens a
     form copied from it (lines and notes; no dates), headed
     "Q-7KQ-M9XD-R1 (New revision)". Nothing is stored until Save or
     Mark Quoted, so leaving it unchanged leaves no trace. Quoting it

@@ -478,7 +478,7 @@ def mark_quoted(
             """
             UPDATE quotes SET status = 'Superseded'
             WHERE number = ? AND revision < ?
-              AND status IN ('Quoted', 'Declined', 'Expired')
+              AND status IN ('Quoted', 'Expired')
             """,
             (quoted.number, quoted.revision),
         )
