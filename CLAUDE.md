@@ -120,8 +120,12 @@ of one: a second copy drifts, and can mask a problem in this file.
   like), to settle when that part gets built, unless it heavily should
   be nailed down now. UI/UX targets whoever the app is for at this
   stage: a question about a later audience waits for that part.
-- The user is learning from the code: point out good practices (and
-  traps met) when reporting a change, briefly.
+- When reporting a change, call out as "Code Point: " any code
+  trade-off or design choice with real impact that may cost us later,
+  and any trap met, briefly and on its own so it stands out when
+  skimming. Skip it when there's none. The general rule: pay a cost
+  at implementation rather than let it compound down the road, so
+  raise these while they're still cheap to change.
 
 ### Wording and docs
 
