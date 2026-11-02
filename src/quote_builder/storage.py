@@ -13,6 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.customers import Customer
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
     Extension,
@@ -283,6 +284,52 @@ def delete_tax_rate(conn: sqlite3.Connection, rate_id: int) -> None:
                 raise RateInUse(drafts)
 
 
+_CUSTOMER_COLUMNS = "id, business_id, name, email, phone, address"
+
+
+def list_customers(conn: sqlite3.Connection, business_id: int) -> list[Customer]:
+    """A business's customers by name, in any case."""
+    rows = conn.execute(
+        f"""
+        SELECT {_CUSTOMER_COLUMNS}
+        FROM customers
+        WHERE business_id = ?
+        ORDER BY name COLLATE NOCASE, id
+        """,
+        (business_id,),
+    ).fetchall()
+    return [Customer(**dict(row)) for row in rows]
+
+
+def add_customer(conn: sqlite3.Connection, customer: Customer) -> Customer:
+    """Store a new customer; returns a copy with its id."""
+    with conn:
+        row = conn.execute(
+            """
+            INSERT INTO customers (business_id, name, email, phone, address)
+            VALUES (:business_id, :name, :email, :phone, :address)
+            RETURNING id
+            """,
+            vars(customer),
+        ).fetchone()
+    return replace(customer, id=row["id"])
+
+
+def _customers_now(
+    conn: sqlite3.Connection, customer_ids: list[int | None]
+) -> dict[int, Customer]:
+    """These customers as they are now, by id: what a draft shows."""
+    ids = sorted({customer_id for customer_id in customer_ids if customer_id is not None})
+    if not ids:
+        return {}
+    placeholders = ", ".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT {_CUSTOMER_COLUMNS} FROM customers WHERE id IN ({placeholders})",
+        ids,
+    ).fetchall()
+    return {row["id"]: Customer(**dict(row)) for row in rows}
+
+
 def save_new_quote(
     conn: sqlite3.Connection,
     quote: Quote,
@@ -302,17 +349,9 @@ def save_new_quote(
             # On a clash, DO NOTHING inserts no row, so RETURNING gives
             # none: no exception to catch, and the transaction goes on.
             row = conn.execute(
-                """
-                INSERT INTO quotes
-                    (business_id, number, revision, status, issued_on,
-                     valid_until, notes, tax_rate_id, updated_at,
-                     frozen_items_cents, frozen_discount_cents,
-                     frozen_tax_cents, frozen_total_cents, frozen_tax_name,
-                     frozen_tax_percent)
-                VALUES (:business_id, :number, :revision, :status, :issued_on,
-                        :valid_until, :notes, :tax_rate_id, :updated_at,
-                        :items_cents, :discount_cents, :tax_cents,
-                        :total_cents, :tax_name, :tax_percent)
+                f"""
+                INSERT INTO quotes ({_QUOTE_COLUMNS})
+                VALUES ({_QUOTE_VALUES})
                 ON CONFLICT (number, revision) DO NOTHING
                 RETURNING id
                 """,
@@ -370,9 +409,11 @@ def mark_quoted(
     IntegrityError as save_revision does; `draw_number` and `now` as for
     save_new_quote.
     """
-    # The tax rate as it is now is the one frozen, whatever the quote
-    # was shown with.
-    taxed = _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
+    # The tax rate and customer as they are now are the ones frozen,
+    # whatever the quote was shown with.
+    taxed = _with_customer(
+        _with_rate(quote, _rates_now(conn, [quote.tax_rate_id])), conn
+    )
     quoted = freeze(
         replace(
             taxed, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
@@ -401,16 +442,9 @@ def _insert_revision(
 ) -> None:
     """Insert a revision not yet saved, inside the caller's transaction."""
     row = conn.execute(
-        """
-        INSERT INTO quotes
-            (business_id, number, revision, status, issued_on, valid_until,
-             notes, tax_rate_id, updated_at, frozen_items_cents,
-             frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
-             frozen_tax_name, frozen_tax_percent)
-        VALUES (:business_id, :number, :revision, :status, :issued_on,
-                :valid_until, :notes, :tax_rate_id, :updated_at, :items_cents,
-                :discount_cents, :tax_cents, :total_cents, :tax_name,
-                :tax_percent)
+        f"""
+        INSERT INTO quotes ({_QUOTE_COLUMNS})
+        VALUES ({_QUOTE_VALUES})
         RETURNING id
         """,
         _quote_values(quote, quote.number, _timestamp(now)),
@@ -433,7 +467,12 @@ def _overwrite_draft(
             frozen_items_cents = :items_cents,
             frozen_discount_cents = :discount_cents,
             frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents,
-            frozen_tax_name = :tax_name, frozen_tax_percent = :tax_percent
+            frozen_tax_name = :tax_name, frozen_tax_percent = :tax_percent,
+            customer_id = :customer_id,
+            frozen_customer_name = :customer_name,
+            frozen_customer_email = :customer_email,
+            frozen_customer_phone = :customer_phone,
+            frozen_customer_address = :customer_address
         WHERE number = :number AND revision = :revision AND status = 'Draft'
         RETURNING id
         """,
@@ -526,9 +565,35 @@ def extend_quote(
     )
 
 
+# A new quote's columns, and the names in _quote_values they're given,
+# in the same order: for the two INSERTs.
+_QUOTE_COLUMNS = """
+    business_id, number, revision, status, issued_on, valid_until, notes,
+    tax_rate_id, updated_at, frozen_items_cents, frozen_discount_cents,
+    frozen_tax_cents, frozen_total_cents, frozen_tax_name, frozen_tax_percent,
+    customer_id, frozen_customer_name, frozen_customer_email,
+    frozen_customer_phone, frozen_customer_address
+"""
+_QUOTE_VALUES = """
+    :business_id, :number, :revision, :status, :issued_on, :valid_until,
+    :notes, :tax_rate_id, :updated_at, :items_cents, :discount_cents,
+    :tax_cents, :total_cents, :tax_name, :tax_percent, :customer_id,
+    :customer_name, :customer_email, :customer_phone, :customer_address
+"""
+
+
 def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
     """The quote's columns, by name, for INSERT and UPDATE."""
     frozen = quote.frozen
+    customer = quote.customer
+
+    def kept(detail: str) -> str | None:
+        """A customer detail as kept once quoted ('' without a customer);
+        None for a draft, which shows the customer as they are now."""
+        if not frozen:
+            return None
+        return getattr(customer, detail) if customer else ""
+
     return {
         "business_id": quote.business_id,
         "number": number,
@@ -547,6 +612,11 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         # draft's follow the rate as it is now.
         "tax_name": quote.tax_name if frozen else None,
         "tax_percent": str(quote.tax_percent) if frozen else None,
+        "customer_id": customer.id if customer else None,
+        "customer_name": kept("name"),
+        "customer_email": kept("email"),
+        "customer_phone": kept("phone"),
+        "customer_address": kept("address"),
     }
 
 
@@ -591,6 +661,14 @@ def _with_rate(quote: Quote, rates: dict[int, TaxRate]) -> Quote:
     if rate is None:
         return replace(quote, tax_rate_id=None, tax_name="", tax_percent=Decimal(0))
     return replace(quote, tax_name=rate.name, tax_percent=rate.percent)
+
+
+def _with_customer(quote: Quote, conn: sqlite3.Connection) -> Quote:
+    """A draft with its customer as they are now (None without one)."""
+    if quote.customer is None:
+        return quote
+    customers = _customers_now(conn, [quote.customer.id])
+    return replace(quote, customer=customers.get(quote.customer.id))
 
 
 def list_quotes(
@@ -681,7 +759,8 @@ def search_texts(
 
 _SUMMARY_COLUMNS = """
     q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
-    q.valid_until, q.frozen_total_cents, q.tax_rate_id
+    q.valid_until, q.frozen_total_cents, q.tax_rate_id, q.customer_id,
+    q.frozen_customer_name
 """
 
 
@@ -690,11 +769,16 @@ def _summaries(
 ) -> list[QuoteSummary]:
     lines = _line_items_of(conn, [row["id"] for row in rows])
     rates = _rates_now(conn, [row["tax_rate_id"] for row in rows])
+    customers = _customers_now(conn, [row["customer_id"] for row in rows])
     summaries = []
     for row in rows:
         items = lines.get(row["id"], [])
         rate = rates.get(row["tax_rate_id"])
         tax_percent = rate.percent if rate else Decimal(0)
+        # Once quoted, the name as it was; a draft's as it is now.
+        customer_name = row["frozen_customer_name"]
+        if customer_name is None and row["customer_id"] in customers:
+            customer_name = customers[row["customer_id"]].name
         summaries.append(
             QuoteSummary(
                 number=row["number"],
@@ -709,6 +793,7 @@ def _summaries(
                 ),
                 issued_on=_date(row["issued_on"]),
                 valid_until=_date(row["valid_until"]),
+                customer_name=customer_name or None,  # '': quoted without one
             )
         )
     return summaries
@@ -753,7 +838,9 @@ def load_quote(
         SELECT id, business_id, number, revision, status, issued_on,
                valid_until, notes, tax_rate_id, frozen_items_cents,
                frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
-               frozen_tax_name, frozen_tax_percent
+               frozen_tax_name, frozen_tax_percent, customer_id,
+               frozen_customer_name, frozen_customer_email,
+               frozen_customer_phone, frozen_customer_address
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -786,12 +873,28 @@ def load_quote(
         ),
         extensions=_extensions_of(conn, row["id"]),
     )
-    if row["frozen_tax_percent"] is None:  # a draft: the rate as it is now
-        return _with_rate(quote, _rates_now(conn, [quote.tax_rate_id]))
+    if row["frozen_tax_percent"] is None:
+        # A draft: the rate and customer as they are now.
+        customers = _customers_now(conn, [row["customer_id"]])
+        return _with_rate(
+            replace(quote, customer=customers.get(row["customer_id"])),
+            _rates_now(conn, [quote.tax_rate_id]),
+        )
+    customer = None
+    if row["customer_id"] is not None:
+        customer = Customer(
+            business_id=row["business_id"],
+            name=row["frozen_customer_name"],
+            email=row["frozen_customer_email"],
+            phone=row["frozen_customer_phone"],
+            address=row["frozen_customer_address"],
+            id=row["customer_id"],
+        )
     return replace(
         quote,
         tax_name=row["frozen_tax_name"],
         tax_percent=Decimal(row["frozen_tax_percent"]),
+        customer=customer,
     )
 
 

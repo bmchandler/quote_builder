@@ -7,7 +7,7 @@ the foot of a quote always matches its lines. Rounding is half up
 default half even (banker's rounding).
 
 Once quoted, a quote's figures are frozen (stored with it) and shown
-from then on, so a later change here never changes what a client was
+from then on, so a later change here never changes what a customer was
 given.
 """
 

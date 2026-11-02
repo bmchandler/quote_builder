@@ -40,6 +40,7 @@ All in `src/quote_builder/`:
   command.
 - `quotes.py`: quotes and line items as dataclasses.
 - `business.py`: a business and its settings, and its tax rates.
+- `customers.py`: a business's customers.
 - `money.py`: reading and showing amounts, quantities, percents, and
   discounts.
 - `dates.py`: reading and showing dates, and valid-through dates.

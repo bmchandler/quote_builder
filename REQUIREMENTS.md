@@ -14,7 +14,7 @@ In scope:
 - One user, on one machine. No accounts or sign-in.
 - One or more businesses (decided 2026-10-20): gig workers often run
   a main business and a side one or two. Each has its own quotes,
-  clients, catalog, and settings; nothing is shared between them.
+  customers, catalog, and settings; nothing is shared between them.
 - Linux as the target system, run as a native desktop window (NiceGUI's
   native mode), not in a browser (decided 2026-10-17). macOS and
   Windows aren't targeted or tested. The window is pywebview on GTK
@@ -22,7 +22,7 @@ In scope:
   `-dev` packages (decided 2026-10-18; see DEVELOPMENT.md): no Qt, and
   no venv reaching system site-packages.
 - Local storage in SQLite.
-- Business details and settings, clients, a catalog of reusable
+- Business details and settings, customers, a catalog of reusable
   services, and quotes made of line items.
 - Tracking each quote's status.
 
@@ -47,7 +47,16 @@ Future (not now):
   a letterhead above the heading, the details at the top right
   beside the heading, or From and To boxes under it (a single line
   of details was ruled out).
+  A quote without a customer gets a space on the printout to write a
+  name or a note by hand (noted 2026-11-01).
 - A banner image at the top left instead of the business's name.
+- Customers in Settings, or a view like it (noted 2026-11-01): not
+  for adding (that's done from a quote), but for fixing details,
+  deleting, and merging duplicates. Fixing changes drafts and later
+  quotes, never a quoted one (see Data). Deleting a customer with
+  quotes is refused.
+- Archiving or purging old quotes (noted 2026-11-01), which would
+  then let customers left without quotes be cleaned up safely.
 - Deleting a tax rate drafts use, guided (noted 2026-10-25): in place
   of the refusal, a dialog listing those drafts, each a link to open
   it and pick another rate, with a button to make the new rate first.
@@ -99,7 +108,7 @@ are worked out with `Decimal` and rounded to the cent where shown.
   yet worth a business of its own; its name says what the work is
   (`Pressure washing`), for the user to tell pilots apart, and is
   never printed. A business's name (`John Doe's Lawn Service`) is
-  the one clients see. A pilot becomes a business by switching it to
+  the one customers see. A pilot becomes a business by switching it to
   Business and naming it, in its Settings: its quotes stay with it,
   as they belong to it, not to its name. Also how many days a new
   quote is valid for (30 to start) and how many days Extend offers
@@ -112,16 +121,24 @@ are worked out with `Decimal` and rounded to the cent where shown.
   start without one is a common irritation. An unnamed business is
   made on first start, filled in later from Settings. A quoted quote
   will keep a copy of its business's details as they were (as with
-  its figures), so a later change doesn't alter what a client was
-  given; to give a client new details, revise the quote.
-- **Client**: name, email, phone, address.
+  its figures), so a later change doesn't alter what a customer was
+  given; to give a customer new details, revise the quote.
+- **Customer** (decided 2026-11-01; "customer", not "client", which
+  reads as consulting, while customer is understood about
+  everywhere): name, email, phone, address (one field, as typed). A
+  name is needed; the rest is optional. Kept per business for the
+  next job. A draft shows its customer's details as they are now;
+  marking it Quoted keeps a copy of them with the quote, as with its
+  tax rate, so fixing a customer's details later changes only drafts
+  and later quotes, never one already quoted. A customer with quotes
+  can't be deleted (the database refuses).
 - **Tax rate**: a name (`Home county`) and its parts, each a name and a
   percent (State 4.75%, County 1.5%, City 1%); its combined rate is
   their sum.
 - **Catalog item**: a reusable service or part, with a description,
   default price, unit (hour, each, flat, and so on), and whether it's
   taxable (often not, for a service).
-- **Quote**: number, client, tax rate, date issued, valid-through
+- **Quote**: number, customer (optional), tax rate, date issued, valid-through
   date, status, notes, and line items.
 - **Line item**: description, quantity, unit price, discount, and
   whether it's taxed (at the quote's rate; decided 2026-10-25).
@@ -146,7 +163,7 @@ own; picking a catalog item will tick it if the item is taxable. A
 draft follows its rate as it is now, so a county's change reaches
 drafts already written; marking it Quoted keeps the rate's name and
 percent with the quote, with its figures, so a later change to the
-rate never alters what a client was given. A tax category per item
+rate never alters what a customer was given. A tax category per item
 (parts, food, services) instead of taxable yes or no is a later
 option, for states that tax such groups differently: it's the case a
 single rate per quote doesn't cover. A quote shows one Tax line; tax
@@ -177,7 +194,7 @@ stored. Once a quote is quoted, its figures are frozen (decided
 2026-10-19): each line's amount, discount, and tax (its total is
 their sum), and the foot's totals are stored with it and shown from
 then on, so a later
-change to how totals are worked out never changes what a client was
+change to how totals are worked out never changes what a customer was
 given. A revision starts as a draft, so it's worked out with the rules
 of the day until it's quoted and frozen in turn. Old rules aren't kept
 around to rework old quotes.
@@ -197,14 +214,14 @@ code says nothing about the date or how many quotes there are. An
 invoice made from a quote will later share its code, with `I-` for
 `Q-`.
 
-Once a quote has been quoted to the client, changes to it are
+Once a quote has been quoted to the customer, changes to it are
 revisions, numbered with a suffix: `Q-7KQ-M9XD-R1`, `-R2`, and so on.
 A draft has no suffix, however often it's changed.
 
 Revisions (decided 2026-10-17):
 
 - A revision starts as a Draft. Until it's quoted, the last quoted
-  version stays Quoted, as it's what the client holds, and its
+  version stays Quoted, as it's what the customer holds, and its
   valid-through date still counts.
 - Once the revision is quoted, the version before it becomes
   Superseded: read-only, kept for history.
@@ -226,7 +243,7 @@ first dead one. So a quote valid through 11/18/2026 is good all of
 that day and Expired from 11/19/2026. The database column keeps the
 name `valid_until`.
 
-The user can extend a Quoted or Expired quote, such as when a client
+The user can extend a Quoted or Expired quote, such as when a customer
 asks for more time at the quoted price, by setting a later
 valid-through date (decided 2026-10-17); an expired one is then
 Quoted again (decided 2026-10-19). The new date replaces the old one
@@ -260,7 +277,7 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
 ## Status and plan
 
-Built (as of 2026-10-24), each with tests:
+Built (as of 2026-11-01), each with tests:
 
 - Quote numbers (quote_numbers.py).
 - SQLite storage (schema.sql, storage.py): saving a new quote with its
@@ -271,7 +288,8 @@ Built (as of 2026-10-24), each with tests:
   valid, Extend's days, and tax rates (each its parts, one the
   default) so far. Every quote belongs to one, and
   every version of it to the same one. The business picked last is
-  remembered (decided 2026-10-24), so the app opens on it.
+  remembered (decided 2026-10-24), so the app opens on it. Customers
+  (customers.py), each a business's, and a quote's customer.
 - Totals (totals.py): per-line discount and tax, the quote's foot.
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
@@ -280,7 +298,9 @@ Built (as of 2026-10-24), each with tests:
     for a revision (decided 2026-10-20; at 300, "Q-…-R1 · Quoted"
     wrapped). Each
     quote has one row, for its newest version (decided 2026-10-19),
-    showing the number and status, the first line's description, the
+    showing the number and status, its customer's name (decided
+    2026-11-01: in the first line's place, the row's layout kept as
+    it was) or, without one, the first line's description, the
     date last saved (local time), and the total; newest first, the open
     quote highlighted. The time saved is kept to the second, in UTC
     (decided 2026-10-19): enough to keep quotes in order. Search, as
@@ -345,13 +365,31 @@ Built (as of 2026-10-24), each with tests:
     line with where and an excerpt: "Notes: …the back hedges need…",
     "Line Item 2: Flush downspouts", "R1, Line Item 3: …" ("Line
     Item", not "Line", which reads like code, or "Item", odd for a
-    service). On trial: if it's too busy, it may become just where
+    service). A row showing its customer hides the first line, so a
+    match there gets its line too ("Line Item 1: Mow lawn"). On trial: if it's too busy, it may become just where
     ("Match in notes"), or go.
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit price,
     discount, Taxed, and notes, with totals updating as you type); Save
     saves it. Any other status opens read-only.
+  - Customer on a quote (decided 2026-11-01): a draft's "Customer",
+    above Tax rate, is optional, even to mark it Quoted. Typing in it
+    narrows the business's customers to those whose name, address,
+    phone, or email holds the text, each shown as its name with those
+    details below ("12 Oak St · 555-0134 · jane@example.com"), so
+    several Jane Does can be told apart. Below the choices, "Add
+    customer "jane d"…" ("Add customer…" with nothing typed) opens a
+    dialog, "New customer": Name (the typed text to start), Email,
+    Phone, Address. It saves on its own, as a tax rate does, and the
+    new customer is picked. A name the business already has, in any
+    case or spacing, asks first: "There's already a Jane Doe (12 Oak
+    St · 555-0134). Add another anyway?", with "Use that one" and
+    "Add another" (with several: "There are already 2 customers named
+    Jane Doe.", and Add another only). The picked customer's details
+    show under the field. Changing the customer counts as a change
+    for "Discard unsaved changes?". A quoted quote shows "Customer:
+    Jane Doe" with the details kept, under its dates.
   - Tax on a quote (decided 2026-10-25): a draft's "Tax rate", above
     its lines, lists "Untaxed" and the business's rates ("Home county
     · 7.25%"), starting on the default (Untaxed without one). Each
@@ -431,13 +469,16 @@ Built (as of 2026-10-24), each with tests:
     "This is an older version. R2 (Draft) is the newest.", with "Go
     to Draft R2" ("Go to R2" if it isn't a draft: the button says
     what it opens). "Newest", not "current": while R2 is a draft, the
-    quoted R1 is still the one the client has. The point is that a
+    quoted R1 is still the one the customer has. The point is that a
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
 Next, growing the screen, storage, and tests together in small steps:
 
-1. Clients, then the catalog.
+1. Search on customer details: the list's Search matching a
+   quote's customer's name, phone, email, and address (a match
+   outside the row's name adding an excerpt line).
+2. The catalog.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the

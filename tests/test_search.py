@@ -10,6 +10,7 @@ from quote_builder.search import (
     hidden_match,
     highlight,
     matches,
+    row_text,
 )
 
 MARK = f'<mark class="{MARK_CLASS}">'
@@ -59,7 +60,7 @@ def test_excerpt_joins_lines():
     )
 
 
-def summary(revision=0, first_line="Mow lawn"):
+def summary(revision=0, first_line="Mow lawn", customer_name=None):
     return QuoteSummary(
         number="Q-7KQ-M9XD",
         revision=revision,
@@ -67,7 +68,14 @@ def summary(revision=0, first_line="Mow lawn"):
         first_line=first_line,
         updated_at=datetime(2026, 10, 19, tzinfo=UTC),
         total_cents=4500,
+        customer_name=customer_name,
     )
+
+
+def test_the_row_shows_the_customer_or_else_the_first_line():
+    assert row_text(summary(customer_name="Jane Doe")) == "Jane Doe"
+    assert row_text(summary()) == "Mow lawn"
+    assert row_text(summary(first_line=None)) is None
 
 
 def line(revision, position, text):
@@ -82,6 +90,13 @@ def test_no_hidden_match_when_the_row_shows_it():
     texts = [line(0, 0, "Mow lawn"), notes(0, "Mow first")]
     assert hidden_match(summary(), texts, "mow") is None
     assert hidden_match(summary(), texts, "7kq") is None  # in the number
+
+
+def test_hidden_match_in_the_first_line_when_the_row_shows_the_customer():
+    texts = [line(0, 0, "Mow lawn")]
+    found = hidden_match(summary(customer_name="Jane Doe"), texts, "mow")
+    assert found == HiddenMatch("Line Item 1", "Mow lawn", 0)
+    assert hidden_match(summary(customer_name="Jane Doe"), texts, "jane") is None
 
 
 def test_hidden_match_in_notes():

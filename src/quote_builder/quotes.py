@@ -5,6 +5,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quote_builder.customers import Customer
+
 
 class Status(StrEnum):
     DRAFT = "Draft"
@@ -62,7 +64,7 @@ class LineItem:
     # An amount or a percent, never both.
     discount_cents: int | None = None
     discount_percent: Decimal | None = None
-    # Stored once quoted, so what the client was given never changes.
+    # Stored once quoted, so what the customer was given never changes.
     frozen: LineTotals | None = None
 
 
@@ -94,6 +96,9 @@ class Quote:
     tax_percent: Decimal = Decimal(0)
     frozen: QuoteTotals | None = None  # stored once quoted, as for lines
     extensions: list[Extension] = field(default_factory=list)  # oldest first
+    # Its customer, if any: a draft's as the customer is now; once
+    # quoted, the details as they were (kept as the tax rate's are).
+    customer: Customer | None = None
 
 
 @dataclass
@@ -108,6 +113,7 @@ class QuoteSummary:
     total_cents: int
     issued_on: date | None = None
     valid_until: date | None = None
+    customer_name: str | None = None  # None without a customer
 
 
 @dataclass(frozen=True)
@@ -123,9 +129,9 @@ class SearchText:
 def revision_draft(quote: Quote, revision: int) -> Quote:
     """A new draft of `quote` numbered `revision`, not yet saved.
 
-    It keeps the lines, notes, and tax rate, as changeable, but none of
-    what the quoted version was given: dates, frozen figures (the rate's
-    percent among them), extensions.
+    It keeps the lines, notes, tax rate, and customer, as changeable,
+    but none of what the quoted version was given: dates, frozen figures
+    (the rate's percent among them), extensions.
     """
     return Quote(
         business_id=quote.business_id,
@@ -135,4 +141,6 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
         line_items=[replace(item, frozen=None) for item in quote.line_items],
         # The same rate, as it is now (filled in when it's shown).
         tax_rate_id=quote.tax_rate_id,
+        # The same customer; the form shows their details as they are now.
+        customer=quote.customer,
     )

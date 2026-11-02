@@ -7,17 +7,20 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from nicegui import ui
+from nicegui import events, ui
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.customers import Customer
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
     add_business,
+    add_customer,
     connect,
     current_business,
     list_businesses,
+    list_customers,
     list_quotes,
     list_tax_rates,
     load_quote,
@@ -1690,3 +1693,208 @@ async def test_a_new_business_gets_tax_rates_once_saved(user):
     user.find(marker="add-business").click()
     await eventually(lambda: heading(user) == "New business or pilot")
     await user.should_not_see(marker="add-tax-rate")
+
+
+def jane(conn, **changes):
+    customer = Customer(
+        BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St"
+    )
+    return add_customer(conn, replace(customer, **changes))
+
+
+def customer_field(user):
+    [select] = user.find(marker="customer").elements
+    return select
+
+
+def send(user, element, event, args=None):
+    """Send `element` a browser event, for what the simulated user can't
+    do: type in a select, or click in its list of choices (a Quasar
+    slot, which user.find doesn't look in)."""
+    with user.client:
+        for listener in element._event_listeners.values():
+            if listener.type == event:
+                events.handle_event(
+                    listener.handler,
+                    events.GenericEventArguments(
+                        sender=element, client=user.client, args=args
+                    ),
+                )
+
+
+async def add_customer_from(user, typed):
+    """Type in the Customer field, then click Add customer, below the
+    choices. (The browser narrows the choices itself.)"""
+    select = customer_field(user)
+    send(user, select, "inputValue", typed)  # NiceGUI's name for input-value
+    [add] = select.slots["after-options"].children
+    [label] = [e for e in add.descendants() if isinstance(e, ui.item_label)]
+    expected = f'Add customer "{typed}"…' if typed else "Add customer…"
+    await eventually(lambda: label.text == expected)
+    send(user, add, "click")
+    await user.should_see(marker="customer-name")
+
+
+def row_texts(user, number):
+    """The texts of a quote's row in the list, top to bottom."""
+    [row] = user.find(marker=f"quote-{number}").elements
+    labels = [e for e in row.descendants() if isinstance(e, ui.item_label)]
+    return [label.text for label in sorted(labels, key=lambda e: e.id)]
+
+
+async def test_pick_a_customer_and_save(user, conn):
+    doe = jane(conn)
+    await new_quote(user)
+    customer_field(user).value = doe.id
+    await eventually(
+        lambda: text(user.find(marker="customer-details"))
+        == "12 Oak St · 555-0134 · jane@example.com"
+    )
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Saved Q-")
+    [number] = saved_numbers(conn)
+    assert load_quote(conn, number).customer == doe
+
+
+async def test_add_a_customer_from_what_was_typed(user, conn):
+    await new_quote(user)
+    await add_customer_from(user, "Pat Newby")
+    assert value(user.find(marker="customer-name")) == "Pat Newby"
+    user.find(marker="customer-phone").type("555-0111")
+    user.find(marker="save-customer").click()
+
+    await user.should_see("Added Pat Newby")
+    [pat] = list_customers(conn, BUSINESS)
+    assert (pat.name, pat.phone) == ("Pat Newby", "555-0111")
+    assert customer_field(user).value == pat.id
+    assert text(user.find(marker="customer-details")) == "555-0111"
+
+
+async def test_a_customer_needs_a_name(user, conn):
+    await new_quote(user)
+    await add_customer_from(user, "")
+    user.find(marker="save-customer").click()
+
+    await user.should_see("A customer needs a name")
+    assert list_customers(conn, BUSINESS) == []
+
+
+async def test_a_same_named_customer_asks_first(user, conn):
+    doe = jane(conn)
+    await new_quote(user)
+    await add_customer_from(user, "jane  doe")
+    user.find(marker="save-customer").click()
+
+    await user.should_see(marker="same-name")
+    assert text(user.find(marker="same-name")) == (
+        "There's already a Jane Doe (12 Oak St · 555-0134 · jane@example.com)."
+        " Add another anyway?"
+    )
+    assert list_customers(conn, BUSINESS) == [doe]
+    user.find(marker="add-another").click()
+
+    await user.should_see("Added jane doe")  # as typed, spaces tidied
+    [new] = [c for c in list_customers(conn, BUSINESS) if c.id != doe.id]
+    assert customer_field(user).value == new.id
+
+
+async def test_use_the_same_named_customer_instead(user, conn):
+    doe = jane(conn)
+    await new_quote(user)
+    await add_customer_from(user, "Jane Doe")
+    user.find(marker="save-customer").click()
+    await user.should_see(marker="same-name")
+    user.find(marker="use-that-one").click()
+
+    await user.should_not_see(marker="customer-name")
+    assert list_customers(conn, BUSINESS) == [doe]
+    assert customer_field(user).value == doe.id
+
+
+async def test_several_same_named_customers(user, conn):
+    jane(conn)
+    jane(conn, address="48 Elm Rd")
+    await new_quote(user)
+    await add_customer_from(user, "Jane Doe")
+    user.find(marker="save-customer").click()
+
+    await user.should_see(marker="same-name")
+    assert text(user.find(marker="same-name")) == (
+        "There are already 2 customers named Jane Doe. Add another anyway?"
+    )
+    await user.should_not_see(marker="use-that-one")
+
+
+async def test_a_changed_name_no_longer_warns(user, conn):
+    jane(conn)
+    await new_quote(user)
+    await add_customer_from(user, "Jane Doe")
+    user.find(marker="save-customer").click()
+    await user.should_see(marker="same-name")
+    user.find(marker="customer-name").type("ring")
+
+    await user.should_not_see(marker="same-name")
+    user.find(marker="save-customer").click()
+    await user.should_see("Added Jane Doering")
+
+
+async def test_changing_the_customer_counts_as_a_change(user, conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, make_quote())
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+    await user.should_see(f"{saved.number} (Draft)")
+    customer_field(user).value = doe.id
+    user.find("New Quote").click()
+
+    await user.should_see(DISCARD_QUESTION)
+
+
+async def test_mark_quoted_shows_the_customer_it_kept(user, conn):
+    doe = jane(conn)
+    await new_quote(user)
+    customer_field(user).value = doe.id
+    fill_line(user, 1, "Gutter guard", "1", "100")
+    user.find(kind=ui.button, content="Mark Quoted").click()
+    await user.should_see("Mark this new quote quoted?")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see(marker="view-customer")
+    assert text(user.find(marker="view-customer")) == "Customer: Jane Doe"
+    assert text(user.find(marker="view-customer-details")) == (
+        "12 Oak St · 555-0134 · jane@example.com"
+    )
+
+
+async def test_the_list_shows_the_customer_in_place_of_the_first_line(user, conn):
+    doe = jane(conn)
+    with_customer = save_new_quote(
+        conn,
+        make_quote(customer=doe, line_items=[LineItem("Mow lawn", Decimal(1), 4500)]),
+    )
+    without = save_new_quote(
+        conn, make_quote(line_items=[LineItem("Clean gutters", Decimal(1), 9000)])
+    )
+    await reload(user)
+
+    assert row_texts(user, with_customer.number)[1] == "Jane Doe"
+    assert row_texts(user, without.number)[1] == "Clean gutters"
+
+
+async def test_search_shows_the_first_line_when_the_row_shows_the_customer(
+    user, conn
+):
+    saved = save_new_quote(
+        conn,
+        make_quote(
+            customer=jane(conn), line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+        ),
+    )
+    await reload(user)
+    await search_for(user, "mow")
+
+    await user.should_see(marker=f"match-{saved.number}")
+    [match] = [p for p in row_html(user, saved.number) if p.startswith("Line Item")]
+    assert match.startswith("Line Item 1: <mark")

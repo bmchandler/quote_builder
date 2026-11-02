@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.customers import Customer
 from quote_builder.quotes import (
     Extension,
     LineItem,
@@ -25,12 +26,14 @@ from quote_builder.storage import (
     NotExtendable,
     RateInUse,
     add_business,
+    add_customer,
     connect,
     current_business,
     delete_tax_rate,
     expire_overdue,
     extend_quote,
     list_businesses,
+    list_customers,
     list_quotes,
     list_tax_rates,
     list_versions,
@@ -828,3 +831,106 @@ def test_a_revision_keeps_the_quotes_business(conn):
     save_revision(conn, revision_draft(quoted, 1))
     assert load_quote(conn, "Q-7KQ-M9XD").business_id == acme.id
     assert [s.revision for s in list_quotes(conn, acme.id)] == [1]
+
+
+def jane(conn, **changes):
+    customer = Customer(
+        BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St"
+    )
+    return add_customer(conn, replace(customer, **changes))
+
+
+def fix_customer(conn, customer_id, **columns):
+    """Change a customer's details, as Settings will (not built yet)."""
+    for column, value in columns.items():
+        with conn:
+            conn.execute(
+                f"UPDATE customers SET {column} = ? WHERE id = ?", (value, customer_id)
+            )
+
+
+def test_customers_listed_by_name_per_business(conn):
+    sam = add_customer(conn, Customer(BUSINESS, "sam Example"))
+    doe = jane(conn)
+    acme = add_business(conn, Business(name="Acme"))
+    add_customer(conn, Customer(acme.id, "Acme's customer"))
+    assert list_customers(conn, BUSINESS) == [doe, sam]
+
+
+def test_a_customer_needs_a_name(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        add_customer(conn, Customer(BUSINESS))
+
+
+def test_a_draft_shows_its_customer_as_they_are_now(conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, make_quote(customer=doe), numbers("Q-7KQ-M9XD"))
+    assert load_quote(conn, saved.number).customer == doe
+
+    fix_customer(conn, doe.id, phone="555-0199")
+    assert load_quote(conn, saved.number).customer.phone == "555-0199"
+    [summary] = list_quotes(conn, BUSINESS)
+    assert summary.customer_name == "Jane Doe"
+
+
+def test_quoted_keeps_the_customer_as_they_were(conn):
+    doe = jane(conn)
+    mark_quoted(
+        conn, lawn_quote(), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
+    )  # without one, for contrast
+    quoted = mark_quoted(
+        conn,
+        replace(lawn_quote(), customer=doe),
+        ISSUED,
+        VALID_UNTIL,
+        numbers("Q-8AB-C2DE"),
+    )
+
+    fix_customer(conn, doe.id, name="Jane Smith", address="48 Elm Rd")
+    kept = load_quote(conn, quoted.number).customer
+    assert (kept.id, kept.name, kept.address) == (doe.id, "Jane Doe", "12 Oak St")
+    assert [s.customer_name for s in list_quotes(conn, BUSINESS)] == [
+        "Jane Doe",
+        None,
+    ]
+    assert load_quote(conn, "Q-7KQ-M9XD").customer is None
+
+
+def test_mark_quoted_keeps_the_customer_as_they_are_now(conn):
+    doe = jane(conn)
+    saved = save_new_quote(conn, replace(lawn_quote(), customer=doe))
+    fix_customer(conn, doe.id, phone="555-0199")
+    # The quote as the form had it, before the fix.
+    mark_quoted(conn, saved, ISSUED, VALID_UNTIL)
+    assert load_quote(conn, saved.number).customer.phone == "555-0199"
+
+
+def test_a_revision_keeps_the_customer_as_they_are_now(conn):
+    doe = jane(conn)
+    quoted = mark_quoted(
+        conn,
+        replace(lawn_quote(), customer=doe),
+        ISSUED,
+        VALID_UNTIL,
+        numbers("Q-7KQ-M9XD"),
+    )
+    fix_customer(conn, doe.id, name="Jane Smith")
+    save_revision(conn, revision_draft(quoted, 1))
+
+    revision = load_quote(conn, "Q-7KQ-M9XD")
+    assert (revision.customer.id, revision.customer.name) == (doe.id, "Jane Smith")
+    assert load_quote(conn, "Q-7KQ-M9XD", 0).customer.name == "Jane Doe"
+
+
+def test_a_quotes_customer_is_its_own_businesss(conn):
+    acme = add_business(conn, Business(name="Acme"))
+    theirs = add_customer(conn, Customer(acme.id, "Acme's customer"))
+    with pytest.raises(sqlite3.IntegrityError):
+        save_new_quote(conn, make_quote(customer=theirs))
+
+
+def test_a_customer_with_quotes_cant_be_deleted(conn):
+    doe = jane(conn)
+    save_new_quote(conn, make_quote(customer=doe))
+    with pytest.raises(sqlite3.IntegrityError), conn:
+        conn.execute("DELETE FROM customers WHERE id = ?", (doe.id,))

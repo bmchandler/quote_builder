@@ -165,7 +165,8 @@ of one: a second copy drifts, and can mask a problem in this file.
   its path also match the shell running them, and kill that.
 - Wording on screen: dates on a quote are `11/18/2026`, in the list
   `Nov 18, 2026`; a quote's last day is "Valid through" (REQUIREMENTS.md
-  explains why); search places say "Line Item 3", not "Line 3".
+  explains why); search places say "Line Item 3", not "Line 3";
+  "customer", never "client".
 - Until close to the first release, the database schema and data files
   can change freely: no migrations, and no need to keep existing data
   in `data/`, unless the user says they're keeping hand-test data.
@@ -175,7 +176,7 @@ of one: a second copy drifts, and can mask a problem in this file.
 - Layers: quotes.py (dataclasses: `Quote`, `LineItem`, `Status`,
   `QuoteSummary`, `LineTotals`, `QuoteTotals`, `Extension`),
   business.py (`Business`: a business's settings; `TaxRate`,
-  `TaxPart`), money.py
+  `TaxPart`), customers.py (`Customer`), money.py
   and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
   search.py (search matches: escaped HTML with `<mark>`, excerpts),
@@ -222,6 +223,9 @@ of one: a second copy drifts, and can mask a problem in this file.
   (use `props("active")`); a handler that takes a parameter is passed
   the event's arguments (wrap it: `lambda: add_line()`);
   `refreshable.refresh()` runs in the background unless awaited.
+  A select's typing filter (`with_input`) matches the choices'
+  labels in the browser; the Customer field packs name and details
+  into each label, on two lines, and draws them with slot templates.
   `ui.html` cleans its HTML with DOMPurify (`sanitize=True`, the
   default), which keeps `<mark>` and `class`; escape user text first
   anyway (search.py does).
@@ -248,11 +252,15 @@ of one: a second copy drifts, and can mask a problem in this file.
   with `eventually`; wait with `should_see` / `should_not_see` (they
   take `marker=` and `kind=` too). `find(...).elements` is a set: to
   check order, compare element ids, which follow drawing order.
+- The simulated user can't type in a select, and `find` doesn't look
+  in an element's slots (a select's choices); tests send the event
+  instead (`send` in test_app.py). Listeners are stored under
+  camelCase names: `input-value` is `inputValue`.
 - `should_see` also matches notifications: to check what a quote
   shows, read its marked element (e.g. `marker="dates"`), not any text.
 
 ## Privacy
 
 - No email addresses in tracked files or package metadata.
-- Real client data stays in `data/` (ignored); tests and examples use
+- Real customer data stays in `data/` (ignored); tests and examples use
   made-up names and businesses.

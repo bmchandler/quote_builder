@@ -61,6 +61,12 @@ def excerpt(text: str, term: str) -> str:
     return ("…" if start > 0 else "") + cut + ("…" if end < len(text) else "")
 
 
+def row_text(summary: QuoteSummary) -> str | None:
+    """The row's second line: its customer's name, or without one, its
+    first line's description (None if it has no lines)."""
+    return summary.customer_name or summary.first_line
+
+
 class HiddenMatch(NamedTuple):
     """A match the quote's row doesn't show."""
 
@@ -75,17 +81,18 @@ def hidden_match(
     """Where `term` matched, when the row doesn't show it, an excerpt,
     and the version: the newest that matched.
 
-    None if there's no term, or the row's number or first line shows
+    None if there's no term, or the row's number or second line shows
     the match already. `texts` is the quote's, newest version first.
     """
     if not term.strip():
         return None
     name = version_name(summary.number, summary.revision)
-    if matches(name, term) or matches(summary.first_line or "", term):
+    if matches(name, term) or matches(row_text(summary) or "", term):
         return None
+    shows_first_line = summary.customer_name is None
     for piece in texts:
         is_first_line = piece.field == "line" and piece.position == 0
-        if piece.revision == summary.revision and is_first_line:
+        if piece.revision == summary.revision and is_first_line and shows_first_line:
             continue  # shown in the row
         if matches(piece.text, term):
             return HiddenMatch(

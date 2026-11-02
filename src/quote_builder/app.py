@@ -14,6 +14,7 @@ from typing import NamedTuple
 from nicegui import ui
 
 from quote_builder.business import Business, TaxPart, TaxRate, check_tax_rate
+from quote_builder.customers import Customer, check_customer, same_name
 from quote_builder.data_folder import data_folder
 from quote_builder.dates import (
     default_valid_until,
@@ -47,12 +48,14 @@ from quote_builder.storage import (
     NotExtendable,
     RateInUse,
     add_business,
+    add_customer,
     connect,
     current_business,
     delete_tax_rate,
     expire_overdue,
     extend_quote,
     list_businesses,
+    list_customers,
     list_quotes,
     list_tax_rates,
     list_versions,
@@ -66,7 +69,13 @@ from quote_builder.storage import (
     save_tax_rate,
     search_texts,
 )
-from quote_builder.search import HiddenMatch, hidden_match, highlight, matches
+from quote_builder.search import (
+    HiddenMatch,
+    hidden_match,
+    highlight,
+    matches,
+    row_text,
+)
 from quote_builder.totals import (
     line_totals,
     quote_totals,
@@ -775,7 +784,8 @@ def quote_list_item(
     term: str = "",
     hidden: HiddenMatch | None = None,
 ) -> None:
-    """One quote in the side list: number, status, first line, date, total.
+    """One quote in the side list: number, status, customer (or without
+    one, the first line), date, total.
 
     While searching for `term`, matches are highlighted, and `hidden`
     (where it matched and an excerpt, from search.hidden_match) adds a
@@ -786,12 +796,12 @@ def quote_list_item(
     if selected:
         item.props("active")
     name = version_name(summary.number, summary.revision)
-    first_line = summary.first_line or "No lines"
+    second_line = row_text(summary) or "No lines"
     with item:
         with ui.item_section():
             if not term:
                 ui.item_label(f"{name} · {summary.status}")
-                ui.item_label(first_line).props("caption lines=1")
+                ui.item_label(second_line).props("caption lines=1")
             else:
                 # highlight escapes the text; ui.html's sanitizer
                 # (DOMPurify) keeps the <mark> tags.
@@ -800,7 +810,7 @@ def quote_list_item(
                         f"{highlight(name, term)} · {summary.status}", tag="span"
                     )
                 with ui.item_label().props("caption lines=1"):
-                    ui.html(highlight(first_line, term), tag="span")
+                    ui.html(highlight(second_line, term), tag="span")
                 if hidden is not None:
                     place, text, _revision = hidden
                     with ui.item_label().props("caption lines=2").mark(
@@ -893,6 +903,192 @@ class LineInputs:
         )
 
 
+# How the Customer field draws a choice: the name, and below it what
+# tells customers of the same name apart. A choice's label is both, on
+# two lines (customer_label), so typing finds a customer by any of it:
+# NiceGUI filters the choices by label. Vue's {{ }} escapes the text.
+CUSTOMER_OPTION = r"""
+<q-item v-bind="props.itemProps">
+  <q-item-section>
+    <q-item-label>{{ props.opt.label.split('\n')[0] }}</q-item-label>
+    <q-item-label caption>{{ props.opt.label.split('\n')[1] }}</q-item-label>
+  </q-item-section>
+</q-item>
+"""
+# The one picked, in the field: the name alone (its details show below).
+CUSTOMER_SELECTED = r"<span>{{ props.opt.label.split('\n')[0] }}</span>"
+
+
+def customer_label(customer: Customer) -> str:
+    return f"{customer.name}\n{customer.details}"
+
+
+class CustomerPicker:
+    """A draft's Customer field: type to find one of the business's
+    customers, or add one; the details of the one picked show below."""
+
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        business_id: int,
+        customer: Customer | None,
+    ) -> None:
+        self.conn = conn
+        self.business_id = business_id
+        self.customers = {c.id: c for c in list_customers(conn, business_id)}
+        self.typed = ""  # what's typed in the field, for Add customer
+        picked = customer.id if customer and customer.id in self.customers else None
+        self.select = (
+            ui.select(
+                self.options(),
+                label="Customer",
+                value=picked,
+                with_input=True,
+                clearable=True,
+                on_change=lambda: self.picked(),
+            )
+            .classes("w-96")
+            .mark("customer")
+        )
+        # NiceGUI's typing filter fills the input with the label picked
+        # and hides the choice; here the choice shows (by the template
+        # below) and the input only takes what's typed.
+        self.select.props(remove="fill-input hide-selected")
+        self.select.add_slot("option", CUSTOMER_OPTION)
+        self.select.add_slot("selected-item", CUSTOMER_SELECTED)
+        self.select.on("input-value", lambda e: self.typing(e.args or ""))
+        # After the choices, or in their place when none match.
+        self.add_labels = []
+        for slot in ("after-options", "no-option"):
+            with self.select.add_slot(slot):
+                with ui.item(on_click=self.add).props("clickable"):
+                    with ui.item_section():
+                        label = ui.item_label(add_customer_text(""))
+                        self.add_labels.append(label.classes("text-primary"))
+        self.details = ui.label().classes("text-grey-7").mark("customer-details")
+        self.show_details()
+
+    def options(self) -> dict[int, str]:
+        return {id: customer_label(c) for id, c in self.customers.items()}
+
+    def customer(self) -> Customer | None:
+        return self.customers.get(self.select.value)
+
+    def typing(self, text: str) -> None:
+        self.typed = text
+        for label in self.add_labels:
+            label.text = add_customer_text(text)
+
+    def picked(self) -> None:
+        self.typing("")
+        self.show_details()
+
+    def show_details(self) -> None:
+        customer = self.customer()
+        self.details.text = customer.details if customer else ""
+        self.details.set_visibility(bool(self.details.text))
+
+    async def add(self) -> None:
+        self.select.run_method("hidePopup")
+        others = list(self.customers.values())
+        answer = await ask_customer(
+            Customer(self.business_id, name=self.typed.strip()), others
+        )
+        if answer is None:
+            return
+        if answer.id is None:
+            answer = add_customer(self.conn, answer)
+            ui.notify(f"Added {answer.name}")
+        self.customers = {
+            c.id: c for c in list_customers(self.conn, self.business_id)
+        }
+        self.select.set_options(self.options(), value=answer.id)
+        # Picking from the dialog, not the list, leaves the typing there.
+        self.select.run_method("updateInputValue", "")
+
+
+def add_customer_text(typed: str) -> str:
+    """`Add customer "jane d"…`, or `Add customer…` with nothing typed."""
+    typed = typed.strip()
+    return f'Add customer "{typed}"…' if typed else "Add customer…"
+
+
+async def ask_customer(customer: Customer, others: list[Customer]) -> Customer | None:
+    """Ask for a new customer's details: the customer as typed, one of
+    `others` if the user picks a same-named one there instead, or None
+    if the user cancels."""
+    with ui.dialog() as dialog, ui.card().classes("min-w-[28rem]"):
+        ui.label("New customer").classes("text-h6")
+        name = (
+            ui.input("Name", value=customer.name, on_change=lambda: actions.refresh())
+            .classes("w-full")
+            .mark("customer-name")
+        )
+        email = ui.input("Email").classes("w-full").mark("customer-email")
+        phone = ui.input("Phone").classes("w-full").mark("customer-phone")
+        address = (
+            ui.textarea("Address").props("autogrow").classes("w-full")
+        ).mark("customer-address")
+        warned = False  # whether Save showed a same-named customer
+
+        def typed() -> Customer:
+            return replace(
+                customer,
+                name=" ".join((name.value or "").split()),
+                email=(email.value or "").strip(),
+                phone=(phone.value or "").strip(),
+                address=(address.value or "").strip(),
+            )
+
+        def save() -> None:
+            nonlocal warned
+            new = typed()
+            try:
+                check_customer(new)
+            except ValueError as problem:
+                ui.notify(str(problem), type="negative")
+                return
+            if same_name(others, new.name):
+                warned = True  # ask first: a likely duplicate
+                actions.refresh()
+                return
+            dialog.submit(new)
+
+        @ui.refreshable
+        def actions() -> None:
+            nonlocal warned
+            same = same_name(others, typed().name) if warned else []
+            warned = bool(same)  # a name changed since no longer warns
+            if same:
+                if len(same) == 1:
+                    [other] = same
+                    known = f" ({other.details})" if other.details else ""
+                    text = f"There's already a {other.name}{known}."
+                else:
+                    text = f"There are already {len(same)} customers named {same[0].name}."
+                ui.label(f"{text} Add another anyway?").classes(
+                    "w-full bg-amber-2 rounded p-2"
+                ).mark("same-name")
+            with ui.row().classes("w-full justify-end"):
+                ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+                if len(same) == 1:
+                    ui.button(
+                        "Use that one", on_click=lambda: dialog.submit(same[0])
+                    ).props("flat").mark("use-that-one")
+                if same:
+                    ui.button(
+                        "Add another", on_click=lambda: dialog.submit(typed())
+                    ).mark("add-another")
+                else:
+                    ui.button("Save", on_click=save).mark("save-customer")
+
+        actions()
+    # Esc or a click outside closes it with None, as Cancel does.
+    answer = await dialog
+    dialog.delete()
+    return answer
+
+
 # A field holding the search term. An input can't highlight part of its
 # text, so the whole field is tinted, in the list's amber.
 MATCHING_FIELD = "bg-amber-100"
@@ -920,6 +1116,7 @@ def quote_editor(
     else:
         heading = f"{name_of(quote)} ({quote.status})"
     quote_heading(heading, on_history)
+    customer = CustomerPicker(conn, quote.business_id, quote.customer)
     # The business's rates as they are now: a draft follows its rate.
     rates = {rate.id: rate for rate in list_tax_rates(conn, quote.business_id)}
     tax_rate = (
@@ -1017,7 +1214,12 @@ def quote_editor(
             ui.notify(str(problem), type="negative")
             return None
         return with_tax_rate(
-            replace(quote, notes=notes.value.strip(), line_items=items)
+            replace(
+                quote,
+                notes=notes.value.strip(),
+                line_items=items,
+                customer=customer.customer(),
+            )
         )
 
     def save() -> None:
@@ -1072,7 +1274,7 @@ def quote_editor(
             )
             for line in lines
         )
-        return (tax_rate.value, typed_lines, notes.value)
+        return (customer.select.value, tax_rate.value, typed_lines, notes.value)
 
     # Saving shows the quote again in a new form, so this is also the
     # state as last saved. Changes undone by hand count as no change.
@@ -1251,7 +1453,13 @@ def quote_view(
         ui.label(f"Extended {times}; first valid through {first}").classes(
             "text-grey-7"
         ).mark("extensions")
-    # The rate as it was when quoted, kept with the quote.
+    # The customer and rate as they were when quoted, kept with the quote.
+    if quote.customer is not None:
+        ui.label(f"Customer: {quote.customer.name}").mark("view-customer")
+        if quote.customer.details:
+            ui.label(quote.customer.details).classes("text-grey-7").mark(
+                "view-customer-details"
+            )
     if quote.tax_name:
         tax = f"Tax: {quote.tax_name} {quote.tax_percent}%"
     else:
