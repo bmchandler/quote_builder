@@ -535,8 +535,12 @@ Built (as of 2026-11-01), each with tests:
     quote and its dialogs show `10/19/2026`. Date fields take
     `11/18/2026` (or `2026-11-18`), typed or picked from a calendar.
   - Marking a draft Quoted (decided 2026-10-19): Mark Quoted, beside
-    Save, asks for the date issued (today) and valid-through (the
-    business's days valid on, 30 to start). Valid-through
+    Save, pinned to the form's bottom-right corner (decided 2026-11-04):
+    right-justified so the bottom-centre status toast doesn't cover them
+    until it clears, and dropped to the foot (the form fills the window
+    height) so they stay in the corner when the window is taller than
+    the content. Mark Quoted asks for the date issued (today) and
+    valid-through (the business's days valid on, 30 to start). Valid-through
     can't be before the date issued, and a quote needs a line.
     Confirming saves the form's changes and marks it Quoted together,
     freezing its figures and its tax rate as it is then (see Data); it

@@ -458,7 +458,9 @@ def quote_page(
                 "Back to Quotes", icon="arrow_back", on_click=back_to_quotes
             ).props("flat no-caps").mark("back-to-quotes")
 
-        body = ui.column().classes("w-full")
+        # Fill the content area's height (viewport less its 2rem padding),
+        # so the editor's foot buttons can pin to the bottom-right corner.
+        body = ui.column().classes("w-full").style("min-height: calc(100vh - 2rem)")
 
         show(None)
 
@@ -1694,7 +1696,10 @@ def quote_editor(
         ui.notify(f"{name_of(quoted)} marked quoted")
         on_saved(quoted)
 
-    with ui.row():
+    # Pinned to the form's bottom-right: justify-end keeps them off the
+    # bottom-centre status toast, and mt-auto drops them to the foot so
+    # they stay in the corner when the window's taller than the content.
+    with ui.row().classes("w-full justify-end mt-auto"):
         ui.button("Save", on_click=save)
         ui.button("Mark Quoted", on_click=quote_it).props("outline")
     for item in quote.line_items:
