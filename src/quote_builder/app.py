@@ -472,10 +472,22 @@ def name_of(quote: Quote) -> str:
     return version_name(quote.number, quote.revision)
 
 
-def quote_heading(text: str, on_history: Callable[[], None] | None) -> None:
-    """The quote's heading, with a Version history link at the right."""
-    with ui.row().classes("w-full items-center justify-between no-wrap"):
-        ui.label(text).classes("text-h6").mark("heading")
+def quote_heading(
+    text: str,
+    on_history: Callable[[], None] | None,
+    actions: Callable[[], None] | None = None,
+) -> None:
+    """The quote's heading, with `actions` (a quoted quote's Extend/Revise)
+    at its right, and the Version history link tucked just below it, so the
+    heading's width stays the same whether or not there's a history."""
+    # A tight column so the history link sits right under the title, apart
+    # from the page's usual spacing to what follows.
+    with ui.column().classes("w-full gap-0"):
+        with ui.row().classes("w-full items-center justify-between no-wrap"):
+            ui.label(text).classes("text-h6 whitespace-nowrap").mark("heading")
+            if actions is not None:
+                with ui.row().classes("items-center no-wrap gap-2"):
+                    actions()
         if on_history is not None:
             ui.button("Version history", icon="history", on_click=on_history).props(
                 "flat dense no-caps"
@@ -1886,7 +1898,17 @@ def quote_view(
     the lines and notes are highlighted. `rate_changed` says how its
     tax rate has changed since it was quoted, if it should say.
     """
-    quote_heading(f"{name_of(quote)} ({quote.status})", on_history)
+    def view_actions() -> None:
+        """Extend and Revise, at the heading's right (none on a version
+        that's neither Quoted nor Expired and can't be revised)."""
+        if quote.status in (Status.QUOTED, Status.EXPIRED):
+            ui.button("Extend", icon="event", on_click=on_extend).props("outline")
+        if on_revise is not None:
+            ui.button("Revise", icon="edit_note", on_click=on_revise).props(
+                "outline"
+            ).mark("revise")
+
+    quote_heading(f"{name_of(quote)} ({quote.status})", on_history, actions=view_actions)
     if newer is not None:
         older_version_banner(newer, on_newest)
     if rate_changed:
@@ -1919,13 +1941,6 @@ def quote_view(
     else:
         tax = "Tax: Untaxed"
     ui.label(tax).mark("view-tax-rate")
-    with ui.row():
-        if quote.status in (Status.QUOTED, Status.EXPIRED):
-            ui.button("Extend", icon="event", on_click=on_extend).props("outline")
-        if on_revise is not None:
-            ui.button("Revise", icon="edit_note", on_click=on_revise).props(
-                "outline"
-            ).mark("revise")
     # A quoted quote shows its frozen figures, not ones worked out again.
     for n, item in enumerate(quote.line_items, start=1):
         rest = f": {item.quantity} × {format_money(item.unit_price_cents)}"

@@ -1153,6 +1153,22 @@ async def test_revise_is_beside_extend(user, conn):
     assert extend.id < revise.id  # Extend first, then Revise
 
 
+async def test_version_history_sits_below_the_buttons(user, conn):
+    # Extend/Revise group at the heading's right; Version history isn't
+    # in that group (it's tucked below the quote number), so the heading
+    # keeps the same width with or without a history.
+    saved = quoted(conn)
+    mark_quoted(conn, revision_draft(saved, 1), TODAY, VALID_UNTIL, new_revision=True)
+    await open_saved(user, saved)  # opens the newest, R1
+
+    [history] = user.find(marker="version-history").elements
+    [extend] = user.find(kind=ui.button, content="Extend").elements
+    [revise] = user.find(marker="revise").elements
+    assert extend.parent_slot.parent is revise.parent_slot.parent
+    assert history.parent_slot.parent is not extend.parent_slot.parent
+    assert history.id > revise.id  # drawn after the heading row
+
+
 async def test_save_a_revision(user, conn):
     saved = quoted(conn)
     await start_revising(user, saved)

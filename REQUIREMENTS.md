@@ -569,6 +569,13 @@ Built (as of 2026-11-01), each with tests:
     opens a list of its versions, newest first, each with its status,
     dates (or date saved, for a draft), and total; clicking one opens
     it.
+  - Buttons on a quoted quote (decided 2026-11-04): Extend and Revise
+    (outlined, as they were) sit at the quote heading's right, Extend
+    then Revise, on one line. The Version history link, when there is
+    one, tucks below the quote number instead of beside them, so the
+    heading's width stays the same with or without a history. The
+    buttons were below the tax line in the body before; up here a
+    line's figures aren't split by them.
   - Opening the version a search found (decided 2026-10-20): while
     searching, clicking a row opens the newest version that matched
     (an older one, if that's where the match is), so the user can
@@ -611,5 +618,4 @@ Polish to weigh once the main features are done (started
 2026-11-01). Captured so it isn't lost, not promised: an item may no
 longer fit by then, or the work before may have changed it.
 
-- A quoted quote's buttons, such as Extend and Revise, moved
-  elsewhere on it (where is to be settled).
+- (None open right now.)
