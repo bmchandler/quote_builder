@@ -14,13 +14,22 @@ BUSINESS = 1
 
 def test_details_tell_customers_apart():
     jane = Customer(
-        BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St\nSpringfield"
+        BUSINESS,
+        "Jane Doe",
+        "jane@example.com",
+        "1234567890",
+        ext="12",
+        address="12 Oak St\nSpringfield",
     )
-    assert jane.details == "12 Oak St, Springfield · 555-0134 · jane@example.com"
+    assert jane.details == (
+        "12 Oak St, Springfield · (123) 456-7890 ext. 12 · jane@example.com"
+    )
 
 
 def test_details_leave_out_blank_parts():
-    assert Customer(BUSINESS, "Jane Doe", phone="555-0134").details == "555-0134"
+    assert Customer(BUSINESS, "Jane Doe", phone="1234567890").details == (
+        "(123) 456-7890"
+    )
     assert Customer(BUSINESS, "Jane Doe", address=" 12 Oak St \n\n").details == (
         "12 Oak St"
     )
@@ -37,15 +46,22 @@ def test_blank_means_nothing_entered():
     assert Customer(BUSINESS).is_blank
     assert not Customer(BUSINESS, name="Jane Doe").is_blank
     assert not Customer(BUSINESS, email="jane@example.com").is_blank
-    assert not Customer(BUSINESS, phone="555-0134").is_blank
+    assert not Customer(BUSINESS, phone="1234567890").is_blank
+    assert not Customer(BUSINESS, ext="12").is_blank
     assert not Customer(BUSINESS, address="12 Oak St").is_blank
 
 
-JANE = Customer(BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St", 1)
-SAM = Customer(BUSINESS, "Sam Example", "sam@test.example", "555-0177", "48 Elm Rd", 2)
+JANE = Customer(
+    BUSINESS, "Jane Doe", "jane@example.com", "1234560134", address="12 Oak St", id=1
+)
+SAM = Customer(
+    BUSINESS, "Sam Example", "sam@test.example", "1234560177", address="48 Elm Rd", id=2
+)
 
 
-@pytest.mark.parametrize("text", ["JANE", "@example.com", "0134", "oak st", " doe "])
+@pytest.mark.parametrize(
+    "text", ["JANE", "@example.com", "0134", "(123) 456-0134", "oak st", " doe "]
+)
 def test_find_matches_any_detail_in_any_case(text):
     assert find_customers([JANE, SAM], text) == [JANE]
 
@@ -67,7 +83,8 @@ def test_all_details_matching_is_an_exact_duplicate():
     [
         {"name": "jane doe"},
         {"email": "doe@example.com"},
-        {"phone": "555-0199"},
+        {"phone": "1234560199"},
+        {"ext": "12"},
         {"address": "48 Elm Rd"},
     ],
 )

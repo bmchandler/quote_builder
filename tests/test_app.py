@@ -2326,7 +2326,7 @@ async def test_adding_to_the_catalog_isnt_a_change_to_the_quote(user, conn):
 
 def jane(conn, **changes):
     customer = Customer(
-        BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St"
+        BUSINESS, "Jane Doe", "jane@example.com", "1234560134", address="12 Oak St"
     )
     return add_customer(conn, replace(customer, **changes))
 
@@ -2357,11 +2357,12 @@ def add_to_customers_button(user):
     return button
 
 
-def type_customer(user, name="", phone="", email="", address=""):
+def type_customer(user, name="", phone="", email="", address="", ext=""):
     """Type a customer's details on the open quote."""
     for marker, typed in (
         ("name", name),
         ("phone", phone),
+        ("ext", ext),
         ("email", email),
         ("address", address),
     ):
@@ -2370,10 +2371,10 @@ def type_customer(user, name="", phone="", email="", address=""):
 
 
 def customer_shown(user):
-    """The form's customer fields: name, phone, email, address."""
+    """The form's customer fields: name, phone, ext, email, address."""
     return [
         value(user.find(marker=f"quote-customer-{marker}"))
-        for marker in ("name", "phone", "email", "address")
+        for marker in ("name", "phone", "ext", "email", "address")
     ]
 
 
@@ -2391,14 +2392,14 @@ def row_texts(user, number):
 
 async def test_type_a_customer_on_a_quote(user, conn):
     await new_quote(user)
-    type_customer(user, "  Pat   Newby ", phone="555-0111")
+    type_customer(user, "  Pat   Newby ", phone="(123) 456-0111")
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find(kind=ui.button, content="Save").click()
 
     await user.should_see("Saved Q-")
     [number] = saved_numbers(conn)
     assert load_quote(conn, number).customer == Customer(
-        BUSINESS, "Pat Newby", phone="555-0111"
+        BUSINESS, "Pat Newby", phone="1234560111"
     )
     assert list_customers(conn, BUSINESS) == []  # the list is only for regulars
 
@@ -2415,14 +2416,14 @@ async def test_a_quote_needs_no_customer(user, conn):
 
 async def test_a_customer_can_go_without_a_name_on_a_quote(user, conn):
     await new_quote(user)
-    type_customer(user, phone="555-0111")
+    type_customer(user, phone="(123) 456-0111")
     fill_line(user, 1, "Mow lawn", "1", "45")
     user.find(kind=ui.button, content="Mark Quoted").click()
     await user.should_see("Mark this new quote quoted?")
     user.find(marker="confirm-quoted").click()
 
     await user.should_see(marker="view-customer-details")
-    assert text(user.find(marker="view-customer-details")) == "555-0111"
+    assert text(user.find(marker="view-customer-details")) == "(123) 456-0111"
     await user.should_not_see(marker="view-customer")
 
 
@@ -2439,13 +2440,14 @@ async def test_find_a_customer_fills_the_quotes_copy(user, conn):
     await reload(user)
     await new_quote(user)
     await find_customer(user)
-    await user.should_see("12 Oak St · 555-0134 · jane@example.com")
+    await user.should_see("12 Oak St · (123) 456-0134 · jane@example.com")
     user.find(marker=f"found-customer-{doe.id}").click()
 
     await user.should_not_see(marker="find-customer-text")
     assert customer_shown(user) == [
         "Jane Doe",
-        "555-0134",
+        "(123) 456-0134",
+        "",
         "jane@example.com",
         "12 Oak St",
     ]
@@ -2460,7 +2462,7 @@ async def test_find_a_customer_fills_the_quotes_copy(user, conn):
 @pytest.mark.parametrize("search", ["JANE", "0134", "example.com", "oak"])
 async def test_find_customer_searches_any_detail(user, conn, search):
     doe = jane(conn)
-    sam = add_customer(conn, Customer(BUSINESS, "Sam Example", phone="555-0177"))
+    sam = add_customer(conn, Customer(BUSINESS, "Sam Example", phone="1234560177"))
     await reload(user)
     await new_quote(user)
     await find_customer(user)
@@ -2489,19 +2491,19 @@ async def test_cancelling_find_customer_leaves_what_was_typed(user, conn):
     user.find(kind=ui.button, content="Cancel").click()
 
     await user.should_not_see(marker="find-customer-text")
-    assert customer_shown(user) == ["Pat Newby", "", "", ""]
+    assert customer_shown(user) == ["Pat Newby", "", "", "", ""]
 
 
 async def test_finding_a_customer_replaces_every_detail(user, conn):
     sam = add_customer(conn, Customer(BUSINESS, "Sam Example"))
     await reload(user)
     await new_quote(user)
-    type_customer(user, "Pat Newby", phone="555-0111")
+    type_customer(user, "Pat Newby", phone="(123) 456-0111")
     await find_customer(user)
     user.find(marker=f"found-customer-{sam.id}").click()
 
     await user.should_not_see(marker="find-customer-text")
-    assert customer_shown(user) == ["Sam Example", "", "", ""]
+    assert customer_shown(user) == ["Sam Example", "", "", "", ""]
 
 
 async def test_a_quote_can_change_its_copy_for_this_quote_only(user, conn):
@@ -2510,12 +2512,57 @@ async def test_a_quote_can_change_its_copy_for_this_quote_only(user, conn):
         conn, make_quote(customer=doe, line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
     )
     await open_saved(user, saved)
-    user.find(marker="quote-customer-phone").clear().type("555-0199")
+    user.find(marker="quote-customer-phone").clear().type("(123) 456-0199")
     user.find(kind=ui.button, content="Save").click()
 
     await user.should_see("Saved")
-    assert load_quote(conn, saved.number).customer.phone == "555-0199"
+    assert load_quote(conn, saved.number).customer.phone == "1234560199"
     assert list_customers(conn, BUSINESS) == [doe]
+
+
+async def test_phone_reformats_on_leaving_the_field(user):
+    await new_quote(user)
+    user.find(marker="quote-customer-phone").type("123.456.0134")
+    [phone] = user.find(marker="quote-customer-phone").elements
+    send(user, phone, "blur")
+
+    await eventually(
+        lambda: value(user.find(marker="quote-customer-phone")) == "(123) 456-0134"
+    )
+
+
+async def test_a_bad_phone_is_refused_on_save(user, conn):
+    await new_quote(user)
+    type_customer(user, "Pat Newby", phone="12345")
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("isn't a 10-digit phone number")
+    assert saved_numbers(conn) == []
+
+
+async def test_a_phone_extension_is_kept_and_shown(user, conn):
+    await new_quote(user)
+    type_customer(user, "Jane Doe", phone="(123) 456-0134", ext="12")
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(kind=ui.button, content="Mark Quoted").click()
+    await user.should_see("Mark this new quote quoted?")
+    user.find(marker="confirm-quoted").click()
+
+    await user.should_see(marker="view-customer-details")
+    assert text(user.find(marker="view-customer-details")) == "(123) 456-0134 ext. 12"
+    [number] = saved_numbers(conn)
+    assert load_quote(conn, number).customer.ext == "12"
+
+
+async def test_a_bad_extension_is_refused_on_save(user, conn):
+    await new_quote(user)
+    type_customer(user, "Pat Newby", phone="(123) 456-0134", ext="x12")
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("isn't an extension")
+    assert saved_numbers(conn) == []
 
 
 async def test_add_to_customers_shows_once_theres_a_name(user):
@@ -2532,16 +2579,16 @@ async def test_tab_skips_add_to_customers(user):
 
 async def test_add_to_customers_starts_from_the_quote(user, conn):
     await new_quote(user)
-    type_customer(user, "Pat Newby", phone="555-0111")
+    type_customer(user, "Pat Newby", phone="(123) 456-0111")
     send(user, add_to_customers_button(user), "click")
     await user.should_see(marker="customer-name")
     assert value(user.find(marker="customer-name")) == "Pat Newby"
-    assert value(user.find(marker="customer-phone")) == "555-0111"
+    assert value(user.find(marker="customer-phone")) == "(123) 456-0111"
     user.find(marker="save-customer").click()
 
     await user.should_see("Added Pat Newby to Customers")
     [pat] = list_customers(conn, BUSINESS)
-    assert (pat.name, pat.phone) == ("Pat Newby", "555-0111")
+    assert (pat.name, pat.phone) == ("Pat Newby", "1234560111")
     await user.should_see(marker="find-customer")  # now there's one to find
 
 
@@ -2570,10 +2617,10 @@ async def test_a_revision_keeps_its_quotes_copy(user, conn):
     doe = jane(conn)
     quote = make_quote(customer=doe, line_items=[LineItem("Mow lawn", Decimal(1), 4500)])
     saved = mark_quoted(conn, quote, date(2026, 9, 1), VALID_UNTIL)
-    update_customer(conn, replace(doe, phone="555-0199"))
+    update_customer(conn, replace(doe, phone="1234560199"))
     await start_revising(user, saved)
 
-    assert customer_shown(user)[1] == "555-0134"
+    assert customer_shown(user)[1] == "(123) 456-0134"
 
 
 async def open_customers(user):
@@ -2592,7 +2639,7 @@ async def test_customers_list_with_their_details(user, conn):
     await open_customers(user)
     assert heading(user) == "Customers: Unnamed business"
     await user.should_see("Jane Doe")
-    await user.should_see("12 Oak St · 555-0134 · jane@example.com")
+    await user.should_see("12 Oak St · (123) 456-0134 · jane@example.com")
 
 
 async def test_add_a_customer_from_customers(user, conn):
@@ -2613,20 +2660,20 @@ async def test_edit_a_customer(user, conn):
     await open_customers(user)
     await edit_customer(user, doe)
     await user.should_see("Edit customer")
-    assert value(user.find(marker="customer-phone")) == "555-0134"
-    user.find(marker="customer-phone").clear().type("555-0199")
+    assert value(user.find(marker="customer-phone")) == "(123) 456-0134"
+    user.find(marker="customer-phone").clear().type("(123) 456-0199")
     user.find(marker="save-customer").click()
 
     await user.should_see("Saved Jane Doe")
-    await user.should_see("12 Oak St · 555-0199 · jane@example.com")
-    assert list_customers(conn, BUSINESS) == [replace(doe, phone="555-0199")]
+    await user.should_see("12 Oak St · (123) 456-0199 · jane@example.com")
+    assert list_customers(conn, BUSINESS) == [replace(doe, phone="1234560199")]
 
 
 async def test_cancel_leaves_a_customer_alone(user, conn):
     doe = jane(conn)
     await open_customers(user)
     await edit_customer(user, doe)
-    user.find(marker="customer-phone").clear().type("555-0199")
+    user.find(marker="customer-phone").clear().type("(123) 456-0199")
     user.find(kind=ui.button, content="Cancel").click()
 
     await user.should_not_see(marker="delete-customer")
@@ -2651,7 +2698,7 @@ async def test_an_exact_duplicate_is_refused_from_customers(user, conn):
     await user.should_see("New customer")
     user.find(marker="customer-name").type(" Jane  Doe ")  # tidied, then the same
     user.find(marker="customer-email").type("jane@example.com")
-    user.find(marker="customer-phone").type("555-0134")
+    user.find(marker="customer-phone").type("(123) 456-0134")
     user.find(marker="customer-address").type("12 Oak St")
     user.find(marker="save-customer").click()
 
@@ -2677,10 +2724,10 @@ async def test_an_exact_duplicate_is_refused_from_the_plus(user, conn):
 
 async def test_an_edit_making_an_exact_duplicate_is_refused(user, conn):
     doe = jane(conn)
-    other = jane(conn, phone="555-0177")
+    other = jane(conn, phone="1234560177")
     await open_customers(user)
     await edit_customer(user, other)
-    user.find(marker="customer-phone").clear().type("555-0134")
+    user.find(marker="customer-phone").clear().type("(123) 456-0134")
     user.find(marker="save-customer").click()
 
     await user.should_see("Jane Doe already exists with these exact details")
@@ -2690,10 +2737,10 @@ async def test_an_edit_making_an_exact_duplicate_is_refused(user, conn):
 
 async def test_an_edit_can_still_share_a_name(user, conn):
     jane(conn)
-    other = jane(conn, phone="555-0177")
+    other = jane(conn, phone="1234560177")
     await open_customers(user)
     await edit_customer(user, other)
-    user.find(marker="customer-phone").clear().type("555-0188")
+    user.find(marker="customer-phone").clear().type("(123) 456-0188")
     user.find(marker="save-customer").click()
 
     await user.should_see("Saved Jane Doe")
@@ -2738,12 +2785,12 @@ async def test_quotes_keep_their_copies_when_a_customer_changes(user, conn):
     draft = save_new_quote(conn, make_quote(customer=doe))
     await open_customers(user)
     await edit_customer(user, doe)
-    user.find(marker="customer-phone").clear().type("555-0199")
+    user.find(marker="customer-phone").clear().type("(123) 456-0199")
     user.find(marker="save-customer").click()
     await user.should_see("Saved Jane Doe")
 
-    assert load_quote(conn, quoted_one.number).customer.phone == "555-0134"
-    assert load_quote(conn, draft.number).customer.phone == "555-0134"
+    assert load_quote(conn, quoted_one.number).customer.phone == "1234560134"
+    assert load_quote(conn, draft.number).customer.phone == "1234560134"
 
 
 async def test_quotes_keep_their_copies_when_a_customer_is_deleted(user, conn):
@@ -2796,7 +2843,7 @@ async def test_changing_the_customer_counts_as_a_change(user, conn):
 
 async def test_mark_quoted_shows_the_customer_it_kept(user):
     await new_quote(user)
-    type_customer(user, "Jane Doe", "555-0134", "jane@example.com", "12 Oak St")
+    type_customer(user, "Jane Doe", "(123) 456-0134", "jane@example.com", "12 Oak St")
     fill_line(user, 1, "Gutter guard", "1", "100")
     user.find(kind=ui.button, content="Mark Quoted").click()
     await user.should_see("Mark this new quote quoted?")
@@ -2805,7 +2852,7 @@ async def test_mark_quoted_shows_the_customer_it_kept(user):
     await user.should_see(marker="view-customer")
     assert text(user.find(marker="view-customer")) == "Customer: Jane Doe"
     assert text(user.find(marker="view-customer-details")) == (
-        "12 Oak St · 555-0134 · jane@example.com"
+        "12 Oak St · (123) 456-0134 · jane@example.com"
     )
 
 
@@ -2857,7 +2904,24 @@ async def test_search_finds_a_quote_by_its_customers_details(user, conn):
     assert list_order(user) == [saved.number]
     await user.should_see(marker=f"match-{saved.number}")
     [match] = [p for p in row_html(user, saved.number) if p.startswith("Customer")]
-    assert match.startswith("Customer: 555-<mark")
+    assert match.startswith("Customer: (123) 456-<mark")
+
+
+async def test_search_highlights_a_phone_run_that_spans_separators(user, conn):
+    # The digit run 4560134 isn't contiguous in "(123) 456-0134", so the
+    # hidden-match highlights the span it maps onto, dash included.
+    saved = save_new_quote(
+        conn,
+        make_quote(
+            customer=jane(conn), line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+        ),
+    )
+    await reload(user)
+    await search_for(user, "4560134")
+
+    await user.should_see(marker=f"match-{saved.number}")
+    [match] = [p for p in row_html(user, saved.number) if p.startswith("Customer")]
+    assert ">456-0134</mark>" in match
 
 
 async def test_search_highlights_the_customers_name_in_the_row(user, conn):
@@ -2887,6 +2951,24 @@ async def test_a_quoted_quote_highlights_its_customers_matches(user, conn):
     assert ">Oak</mark> St" in details.content
     [name] = user.find(marker="view-customer").elements
     assert name.content == "Customer: Jane Doe"
+
+
+async def test_a_quoted_quote_highlights_a_phone_run_that_spans_separators(user, conn):
+    quoted = mark_quoted(
+        conn,
+        make_quote(
+            customer=jane(conn), line_items=[LineItem("Mow lawn", Decimal(1), 4500)]
+        ),
+        date(2026, 10, 19),
+        date(2026, 11, 18),
+    )
+    await reload(user)
+    await search_for(user, "4560134")
+    user.find(marker=f"quote-{quoted.number}").click()
+
+    await user.should_see(marker="view-customer-details")
+    [details] = user.find(marker="view-customer-details").elements
+    assert ">456-0134</mark>" in details.content
 
 
 async def test_a_draft_tints_its_customer_when_it_matches(user, conn):

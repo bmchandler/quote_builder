@@ -9,7 +9,16 @@ import html
 import re
 from typing import NamedTuple
 
+from quote_builder.phones import digits, format_phone, phone_matches
 from quote_builder.quotes import QuoteSummary, SearchText, version_name
+
+# The phone's place among a customer's details (storage.CUSTOMER_DETAILS):
+# name, email, phone, address. It's stored as digits and matched by them.
+_PHONE_DETAIL = 2
+
+# A phone in the standard form, to find within a customer's joined
+# details so its digit matches can be highlighted (see highlight_phone).
+_SHOWN_PHONE = re.compile(r"\(\d{3}\) \d{3}-\d{4}")
 
 # Tailwind classes for a match: softer than the browser's bright yellow.
 MARK_CLASS = "bg-amber-200 rounded-sm"
@@ -40,6 +49,38 @@ def highlight(text: str, term: str) -> str:
         end = found.end()
     parts.append(html.escape(text[end:]))
     return "".join(parts)
+
+
+def highlight_phone(shown: str, term: str) -> str:
+    """A phone in the standard form as escaped HTML, the run matching
+    `term`'s digits wrapped in one <mark>, separators within it included.
+
+    So `4567890` highlights `456-7890`, not nothing: the digits aren't
+    next to each other in the shown form, but map onto one span of it.
+    """
+    wanted = digits(term)
+    pool = digits(shown)
+    if not wanted or wanted not in pool:
+        return html.escape(shown)
+    first = pool.index(wanted)
+    at = [i for i, char in enumerate(shown) if char.isdigit()]
+    start, end = at[first], at[first + len(wanted) - 1] + 1
+    marked = f'<mark class="{MARK_CLASS}">{html.escape(shown[start:end])}</mark>'
+    return html.escape(shown[:start]) + marked + html.escape(shown[end:])
+
+
+def highlight_details(details: str, term: str) -> str:
+    """A customer's joined details as escaped HTML: the phone part
+    highlighted by its digits (highlight_phone), the rest as typed."""
+    found = _SHOWN_PHONE.search(details)
+    if found is None:
+        return highlight(details, term)
+    before, phone, after = (
+        details[: found.start()],
+        found.group(),
+        details[found.end() :],
+    )
+    return highlight(before, term) + highlight_phone(phone, term) + highlight(after, term)
 
 
 def excerpt(text: str, term: str) -> str:
@@ -73,6 +114,7 @@ class HiddenMatch(NamedTuple):
     place: str  # "Notes", "Line Item 3", "R1, Line Item 2"
     excerpt: str  # plain text
     revision: int  # the version it's in
+    is_phone: bool = False  # a phone, so highlight its digits, not literally
 
 
 def hidden_match(
@@ -94,13 +136,33 @@ def hidden_match(
         is_first_line = piece.field == "line" and piece.position == 0
         if piece.revision == summary.revision and is_first_line and shows_first_line:
             continue  # shown in the row
-        if matches(piece.text, term):
+        if _piece_matches(piece, term):
             return HiddenMatch(
                 _place(piece, summary.revision),
-                excerpt(piece.text, term),
+                _piece_excerpt(piece, term),
                 piece.revision,
+                is_phone=_is_phone(piece),
             )
     return None
+
+
+def _is_phone(piece: SearchText) -> bool:
+    return piece.field == "customer" and piece.position == _PHONE_DETAIL
+
+
+def _piece_matches(piece: SearchText, term: str) -> bool:
+    """A phone matches by digits; everything else as typed."""
+    if _is_phone(piece):
+        return phone_matches(piece.text, term)
+    return matches(piece.text, term)
+
+
+def _piece_excerpt(piece: SearchText, term: str) -> str:
+    """A phone shows formatted (short enough to show whole); everything
+    else as an excerpt around the match."""
+    if _is_phone(piece):
+        return format_phone(piece.text)
+    return excerpt(piece.text, term)
 
 
 def _place(piece: SearchText, newest: int) -> str:

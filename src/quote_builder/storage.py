@@ -15,6 +15,7 @@ from pathlib import Path
 from quote_builder.business import Business, TaxPart, TaxRate
 from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
+from quote_builder.phones import digits as phone_search_digits
 from quote_builder.quote_numbers import new_quote_number
 from quote_builder.quotes import (
     Extension,
@@ -285,7 +286,7 @@ def delete_tax_rate(conn: sqlite3.Connection, rate_id: int) -> None:
                 raise RateInUse(drafts)
 
 
-_CUSTOMER_COLUMNS = "id, business_id, name, email, phone, address"
+_CUSTOMER_COLUMNS = "id, business_id, name, email, phone, ext, address"
 
 
 def list_customers(conn: sqlite3.Connection, business_id: int) -> list[Customer]:
@@ -307,8 +308,8 @@ def add_customer(conn: sqlite3.Connection, customer: Customer) -> Customer:
     with conn:
         row = conn.execute(
             """
-            INSERT INTO customers (business_id, name, email, phone, address)
-            VALUES (:business_id, :name, :email, :phone, :address)
+            INSERT INTO customers (business_id, name, email, phone, ext, address)
+            VALUES (:business_id, :name, :email, :phone, :ext, :address)
             RETURNING id
             """,
             vars(customer),
@@ -322,7 +323,8 @@ def update_customer(conn: sqlite3.Connection, customer: Customer) -> None:
         conn.execute(
             """
             UPDATE customers
-            SET name = :name, email = :email, phone = :phone, address = :address
+            SET name = :name, email = :email, phone = :phone, ext = :ext,
+                address = :address
             WHERE id = :id
             """,
             vars(customer),
@@ -521,6 +523,7 @@ def _overwrite_draft(
             customer_name = :customer_name,
             customer_email = :customer_email,
             customer_phone = :customer_phone,
+            customer_ext = :customer_ext,
             customer_address = :customer_address
         WHERE number = :number AND revision = :revision AND status = 'Draft'
         RETURNING id
@@ -620,13 +623,14 @@ _QUOTE_COLUMNS = """
     business_id, number, revision, status, issued_on, valid_until, notes,
     tax_rate_id, updated_at, frozen_items_cents, frozen_discount_cents,
     frozen_tax_cents, frozen_total_cents, frozen_tax_name, frozen_tax_percent,
-    customer_name, customer_email, customer_phone, customer_address
+    customer_name, customer_email, customer_phone, customer_ext, customer_address
 """
 _QUOTE_VALUES = """
     :business_id, :number, :revision, :status, :issued_on, :valid_until,
     :notes, :tax_rate_id, :updated_at, :items_cents, :discount_cents,
     :tax_cents, :total_cents, :tax_name, :tax_percent,
-    :customer_name, :customer_email, :customer_phone, :customer_address
+    :customer_name, :customer_email, :customer_phone, :customer_ext,
+    :customer_address
 """
 
 
@@ -655,6 +659,7 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         "customer_name": customer.name if customer else "",
         "customer_email": customer.email if customer else "",
         "customer_phone": customer.phone if customer else "",
+        "customer_ext": customer.ext if customer else "",
         "customer_address": customer.address if customer else "",
     }
 
@@ -718,6 +723,12 @@ def list_quotes(
         search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     )
     pattern = f"%{escaped}%"
+    # The phone is stored as digits, so it's matched by the search's
+    # digits, letting any punctuation on either side differ. A term with
+    # no digit never matches a phone (the '' guard), so a plain text
+    # search doesn't light up every number.
+    phone_digits = phone_search_digits(search)
+    phone_pattern = f"%{phone_digits}%"
     # q is the newest version; v runs over every version of its number.
     rows = conn.execute(
         rf"""
@@ -736,11 +747,17 @@ def list_quotes(
                                   AND description LIKE :pattern ESCAPE '\')
                      OR v.customer_name LIKE :pattern ESCAPE '\'
                      OR v.customer_email LIKE :pattern ESCAPE '\'
-                     OR v.customer_phone LIKE :pattern ESCAPE '\'
+                     OR (:phone_digits != ''
+                         AND v.customer_phone LIKE :phone_pattern ESCAPE '\')
                      OR v.customer_address LIKE :pattern ESCAPE '\'))
         ORDER BY q.updated_at DESC, q.id DESC
         """,
-        {"business_id": business_id, "pattern": pattern},
+        {
+            "business_id": business_id,
+            "pattern": pattern,
+            "phone_digits": phone_digits,
+            "phone_pattern": phone_pattern,
+        },
     ).fetchall()
     return _summaries(conn, rows)
 
@@ -890,7 +907,7 @@ def load_quote(
                valid_until, notes, tax_rate_id, frozen_items_cents,
                frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
                frozen_tax_name, frozen_tax_percent, customer_name,
-               customer_email, customer_phone, customer_address
+               customer_email, customer_phone, customer_ext, customer_address
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -906,6 +923,7 @@ def load_quote(
         name=row["customer_name"],
         email=row["customer_email"],
         phone=row["customer_phone"],
+        ext=row["customer_ext"],
         address=row["customer_address"],
     )
     quote = Quote(

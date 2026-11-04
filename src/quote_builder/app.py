@@ -39,6 +39,12 @@ from quote_builder.money import (
     parse_percent,
     parse_quantity,
 )
+from quote_builder.phones import (
+    format_phone,
+    parse_ext,
+    parse_phone,
+    phone_matches,
+)
 from quote_builder.quotes import (
     REVISABLE,
     LineItem,
@@ -87,6 +93,8 @@ from quote_builder.search import (
     HiddenMatch,
     hidden_match,
     highlight,
+    highlight_details,
+    highlight_phone,
     matches,
     row_text,
 )
@@ -1031,12 +1039,16 @@ def quote_list_item(
                 with ui.item_label().props("caption lines=1"):
                     ui.html(highlight(second_line, term), tag="span")
                 if hidden is not None:
-                    place, text, _revision = hidden
+                    inner = (
+                        highlight_phone(hidden.excerpt, term)
+                        if hidden.is_phone
+                        else highlight(hidden.excerpt, term)
+                    )
                     with ui.item_label().props("caption lines=2").mark(
                         f"match-{summary.number}"
                     ):
                         ui.html(
-                            f"{html.escape(place)}: {highlight(text, term)}",
+                            f"{html.escape(hidden.place)}: {inner}",
                             tag="span",
                         ).classes("italic")
         with ui.item_section().props("side top"):
@@ -1206,12 +1218,25 @@ class CustomerFields:
                     .props('flat round dense size=sm tabindex="-1"')
                     .tooltip("Add to Customers")
                 )
-            self.phone = self.field(ui.input, "Phone", given.phone, "phone")
+            with ui.row().classes("no-wrap gap-2 w-full"):
+                self.phone = self.field(
+                    ui.input, "Phone", format_phone(given.phone), "phone"
+                ).classes("grow")
+                self.phone.on("blur", self.reformat_phone)
+                self.ext = self.field(ui.input, "Ext.", given.ext, "ext").classes("w-16")
             self.email = self.field(ui.input, "Email", given.email, "email")
             self.address = self.field(ui.textarea, "Address", given.address, "address")
             self.address.props("autogrow")
-        self.fields = [self.name, self.phone, self.email, self.address]
+        self.fields = [self.name, self.phone, self.ext, self.email, self.address]
         self.show_add()
+
+    def reformat_phone(self) -> None:
+        """On leaving the field, snap a valid number to (123) 456-7890;
+        leave anything else for Save to flag."""
+        try:
+            self.phone.value = format_phone(parse_phone(self.phone.value or ""))
+        except ValueError:
+            pass
 
     def field(
         self, kind: Callable[..., ui.element], label: str, value: str, marker: str
@@ -1232,12 +1257,15 @@ class CustomerFields:
         self.add_to_customers.set_visibility(bool((self.name.value or "").strip()))
 
     def customer(self) -> Customer | None:
-        """The details as typed, or None if they're all blank."""
+        """The details as typed, or None if they're all blank. A phone
+        or extension that doesn't read raises ValueError, as a line's
+        amount does."""
         typed = Customer(
             self.business_id,
             name=" ".join((self.name.value or "").split()),
             email=(self.email.value or "").strip(),
-            phone=(self.phone.value or "").strip(),
+            phone=parse_phone(self.phone.value or ""),
+            ext=parse_ext(self.ext.value or ""),
             address=(self.address.value or "").strip(),
         )
         return None if typed.is_blank else typed
@@ -1249,15 +1277,21 @@ class CustomerFields:
         saved = await ask_find_customer(list_customers(self.conn, self.business_id))
         if saved is not None:
             self.name.value = saved.name
-            self.phone.value = saved.phone
+            self.phone.value = format_phone(saved.phone)
+            self.ext.value = saved.ext
             self.email.value = saved.email
             self.address.value = saved.address
 
     async def add(self) -> None:
         """Saving one doesn't count as a change to the quote, as with Add
         to Catalog."""
+        try:
+            prefilled = self.customer()
+        except ValueError as problem:
+            ui.notify(str(problem), type="negative")
+            return
         answer = await ask_customer(
-            self.customer(), list_customers(self.conn, self.business_id)
+            prefilled, list_customers(self.conn, self.business_id)
         )
         if answer is not None:
             add_customer(self.conn, answer)
@@ -1332,8 +1366,19 @@ async def ask_customer(
         )
         email = ui.input("Email", value=customer.email).classes("w-full")
         email.mark("customer-email")
-        phone = ui.input("Phone", value=customer.phone).classes("w-full")
-        phone.mark("customer-phone")
+        with ui.row().classes("no-wrap gap-2 w-full"):
+            phone = ui.input("Phone", value=format_phone(customer.phone)).classes("grow")
+            phone.mark("customer-phone")
+            ext = ui.input("Ext.", value=customer.ext).classes("w-16")
+            ext.mark("customer-ext")
+
+        def reformat_phone() -> None:
+            try:
+                phone.value = format_phone(parse_phone(phone.value or ""))
+            except ValueError:
+                pass
+
+        phone.on("blur", reformat_phone)
         address = (
             ui.textarea("Address", value=customer.address)
             .props("autogrow")
@@ -1341,17 +1386,19 @@ async def ask_customer(
         ).mark("customer-address")
 
         def typed() -> Customer:
+            """The customer as typed; ValueError says what's wrong."""
             return replace(
                 customer,
                 name=" ".join((name.value or "").split()),
                 email=(email.value or "").strip(),
-                phone=(phone.value or "").strip(),
+                phone=parse_phone(phone.value or ""),
+                ext=parse_ext(ext.value or ""),
                 address=(address.value or "").strip(),
             )
 
         def save() -> None:
-            new = typed()
             try:
+                new = typed()
                 check_customer(new)
             except ValueError as problem:
                 ui.notify(str(problem), type="negative")
@@ -1558,7 +1605,12 @@ def quote_editor(
     def show_matches() -> None:
         descriptions = [line.description for line in lines]
         for field in descriptions + [notes] + customer.fields:
-            tint(field, matches(field.value or "", term))
+            if field is customer.ext:
+                continue  # the extension isn't searched
+            if field is customer.phone:
+                tint(field, phone_matches(field.value or "", term))
+            else:
+                tint(field, matches(field.value or "", term))
 
     def tint(field: ui.element, matching: bool) -> None:
         if matching:
@@ -1582,6 +1634,7 @@ def quote_editor(
         """The quote as the form has it, or None after showing a problem."""
         try:
             items = [_checked_item(n, line) for n, line in enumerate(lines, 1)]
+            typed_customer = customer.customer()
         except ValueError as problem:
             ui.notify(str(problem), type="negative")
             return None
@@ -1590,7 +1643,7 @@ def quote_editor(
                 quote,
                 notes=notes.value.strip(),
                 line_items=items,
-                customer=customer.customer(),
+                customer=typed_customer,
             )
         )
 
@@ -1855,9 +1908,9 @@ def quote_view(
                 "view-customer"
             )
         if quote.customer.details:
-            searched_text(quote.customer.details, term).classes("text-grey-7").mark(
-                "view-customer-details"
-            )
+            searched_text(
+                quote.customer.details, term, highlighter=highlight_details
+            ).classes("text-grey-7").mark("view-customer-details")
     if quote.tax_name:
         tax = f"Tax: {quote.tax_name} {quote.tax_percent}%"
     else:
@@ -1886,15 +1939,20 @@ def quote_view(
 
 
 def searched_text(
-    text: str, term: str, after: str = "", before: str = ""
+    text: str,
+    term: str,
+    after: str = "",
+    before: str = "",
+    highlighter: Callable[[str, str], str] = highlight,
 ) -> ui.element:
     """`text`, between `before` and `after`; while searching for `term`,
-    its matches in `text` are highlighted, as in the list."""
+    its matches in `text` are highlighted, as in the list. `highlighter`
+    swaps in another (e.g. highlight_details, for a phone by its digits)."""
     if not term:
         return ui.label(before + text + after)
     # highlight escapes the text; ui.html's sanitizer keeps the <mark>s.
     return ui.html(
-        html.escape(before) + highlight(text, term) + html.escape(after), tag="div"
+        html.escape(before) + highlighter(text, term) + html.escape(after), tag="div"
     )
 
 

@@ -851,7 +851,7 @@ def test_a_revision_keeps_the_quotes_business(conn):
 
 def jane(conn, **changes):
     customer = Customer(
-        BUSINESS, "Jane Doe", "jane@example.com", "555-0134", "12 Oak St"
+        BUSINESS, "Jane Doe", "jane@example.com", "1234560134", address="12 Oak St"
     )
     return add_customer(conn, replace(customer, **changes))
 
@@ -872,7 +872,7 @@ def test_customers_listed_by_name_per_business(conn):
 def test_update_a_customer(conn):
     doe = jane(conn)
     other = add_customer(conn, Customer(BUSINESS, "Sam Example"))
-    changed = replace(doe, name="Jane Smith", phone="555-0199")
+    changed = replace(doe, name="Jane Smith", phone="1234560199")
     update_customer(conn, changed)
     assert list_customers(conn, BUSINESS) == [changed, other]
 
@@ -931,7 +931,7 @@ def test_a_draft_keeps_its_own_copy_of_the_customer(conn):
     saved = save_new_quote(conn, make_quote(customer=doe), numbers("Q-7KQ-M9XD"))
     assert load_quote(conn, saved.number).customer == on_quote(doe)
 
-    update_customer(conn, replace(doe, phone="555-0199"))
+    update_customer(conn, replace(doe, phone="1234560199"))
     assert load_quote(conn, saved.number).customer == on_quote(doe)
     [summary] = list_quotes(conn, BUSINESS)
     assert summary.customer_name == "Jane Doe"
@@ -969,9 +969,9 @@ def test_quoted_keeps_its_copy_of_the_customer(conn):
 def test_mark_quoted_keeps_the_copy_the_form_had(conn):
     doe = jane(conn)
     saved = save_new_quote(conn, replace(lawn_quote(), customer=doe))
-    update_customer(conn, replace(doe, phone="555-0199"))
+    update_customer(conn, replace(doe, phone="1234560199"))
     mark_quoted(conn, saved, ISSUED, VALID_UNTIL)
-    assert load_quote(conn, saved.number).customer.phone == "555-0134"
+    assert load_quote(conn, saved.number).customer.phone == "1234560134"
 
 
 def test_a_revision_keeps_the_copy_of_the_version_before(conn):
@@ -991,9 +991,9 @@ def test_a_revision_keeps_the_copy_of_the_version_before(conn):
 
 def test_a_customer_without_a_name_can_be_on_a_quote(conn):
     saved = save_new_quote(
-        conn, make_quote(customer=Customer(BUSINESS, phone="555-0134"))
+        conn, make_quote(customer=Customer(BUSINESS, phone="1234560134"))
     )
-    assert load_quote(conn, saved.number).customer.phone == "555-0134"
+    assert load_quote(conn, saved.number).customer.phone == "1234560134"
     [summary] = list_quotes(conn, BUSINESS)
     assert summary.customer_name is None  # so the row shows its first line
 
@@ -1016,7 +1016,7 @@ def test_search_matches_a_quotes_own_copy(conn):
     mark_quoted(
         conn, replace(lawn_quote(), customer=doe), ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD")
     )
-    update_customer(conn, replace(doe, phone="555-0199"))
+    update_customer(conn, replace(doe, phone="1234560199"))
 
     assert [s.number for s in list_quotes(conn, BUSINESS, "0134")] == ["Q-7KQ-M9XD"]
     assert list_quotes(conn, BUSINESS, "0199") == []
@@ -1034,7 +1034,7 @@ def test_search_texts_hold_the_customers_details(conn):
     )
     assert search_texts(conn, [saved.number])[saved.number] == [
         SearchText(0, "customer", 0, "Jane Doe"),
-        SearchText(0, "customer", 2, "555-0134"),  # no email: left out
+        SearchText(0, "customer", 2, "1234560134"),  # no email: left out
         SearchText(0, "customer", 3, "12 Oak St"),
         SearchText(0, "line", 0, "Mow lawn"),
         SearchText(0, "notes", 0, "Gate code 4411"),

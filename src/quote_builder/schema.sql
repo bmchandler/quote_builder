@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS customers (
     business_id INTEGER NOT NULL REFERENCES businesses (id),
     name        TEXT    NOT NULL CHECK (name != ''),
     email       TEXT    NOT NULL DEFAULT '',
-    phone       TEXT    NOT NULL DEFAULT '',
+    phone       TEXT    NOT NULL DEFAULT '',   -- ten digits (1234567890)
+    ext         TEXT    NOT NULL DEFAULT '',   -- a phone extension, digits only
     address     TEXT    NOT NULL DEFAULT ''   -- as typed, line breaks and all
 ) STRICT;
 
@@ -103,7 +104,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     -- the customers table ('' for none). Nothing points at that table.
     customer_name    TEXT NOT NULL DEFAULT '',
     customer_email   TEXT NOT NULL DEFAULT '',
-    customer_phone   TEXT NOT NULL DEFAULT '',
+    customer_phone   TEXT NOT NULL DEFAULT '',   -- ten digits (1234567890)
+    customer_ext     TEXT NOT NULL DEFAULT '',   -- a phone extension, digits only
     customer_address TEXT NOT NULL DEFAULT '',
     UNIQUE (number, revision),
     -- Only a draft goes without dates and frozen totals.

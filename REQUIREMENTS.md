@@ -390,7 +390,8 @@ Built (as of 2026-11-01), each with tests:
     and clicking a business goes back to its settings. One row per
     customer, by name in any case, with their details below, and "Add
     customer…". Adding or clicking one opens a dialog, "New customer"
-    or "Edit customer": Name (needed), Email, Phone, Address. It saves
+    or "Edit customer": Name (needed), Email, Phone (with Ext. beside
+    it; see Phone numbers), Address. It saves
     on its own, as a catalog item's does; a customer already saved has
     Delete. Nothing points at a saved customer, so neither changes any
     quote. Adding or editing a customer so they match another in every
@@ -441,18 +442,38 @@ Built (as of 2026-11-01), each with tests:
     saves it. Any other status opens read-only.
   - Customer on a quote (decided 2026-11-02, replacing a picker tied
     to saved customers): a draft's "Customer", above Tax rate, is Name
-    and Phone, then Email and Address, in two columns, each plain text
-    and optional, even to mark it Quoted. Changes count for "Discard
+    and Phone (with Ext. beside it), then Email and Address, in two
+    columns, each optional, even to mark it Quoted (but a phone or
+    extension that's entered must read; see Phone numbers). Changes
+    count for "Discard
     unsaved changes?". A quoted quote shows "Customer: Jane Doe" with
     the details under it, below its dates; without a name, just the
     details. A revision starts from the version before's details.
+  - Phone numbers (decided 2026-11-04): a phone is stored as its ten
+    digits and shown in the standard form `(123) 456-7890`, so storage
+    and display stay decoupled. Entry takes the common forms
+    (`1234567890`, `123.456.7890`, `(123) 456-7890`); on leaving the
+    field it snaps to the standard form. Only ten digits are taken (the
+    user base is US); anything else is refused with a message that, like
+    a bad amount, holds up Save and Mark Quoted until it's fixed or
+    cleared. A phone stays optional: blank is fine, even to mark Quoted.
+    An extension sits in a narrow "Ext." field beside the phone, digits
+    only, optional, shown after it as `(123) 456-7890 ext. 12`. Search
+    matches a phone by its digits, any punctuation on either side
+    ignored, so `456`, `1234567890`, and `(123) 456` all find it; the
+    extension isn't searched. A phone match is highlighted by its
+    digits, so a run that spans the shown form's separators is marked
+    whole: searching `4567890` highlights `456-7890` (in the list's
+    match line and on an open quote), not nothing.
   - Find customer (decided 2026-11-02): once the business has a saved
     customer, a button beside the "Customer" heading opens a dialog,
     "Find customer": Search, narrowing as you type by name, email,
-    phone, or address, in any case, each shown as its name with its
+    phone (by its digits; see Phone numbers), or address, in any case,
+    each shown as its name with its
     details below, so several Jane Does can be told apart ("No
     customers match" when none do). Clicking one closes it and fills
-    all four fields, replacing what's there, even with blanks; Cancel
+    every field (the extension included), replacing what's there, even
+    with blanks; Cancel
     leaves them. Search is its own dialog, not suggestions in the Name
     field, so typing a walk-in's name stays plain typing.
   - Add to Customers (decided 2026-11-02): once Name holds text, a
@@ -587,9 +608,5 @@ Polish to weigh once the main features are done (started
 2026-11-01). Captured so it isn't lost, not promised: an item may no
 longer fit by then, or the work before may have changed it.
 
-- Phone numbers formatted as typed: `1234567890` becomes
-  `123.456.7890`, not `(123) 456-7890`. Or the form could vary with
-  the room: dots where space is tight, `(123) 456-7890` where there's
-  room, as on a printout.
 - A quoted quote's buttons, such as Extend and Revise, moved
   elsewhere on it (where is to be settled).

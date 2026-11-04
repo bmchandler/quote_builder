@@ -9,6 +9,8 @@ from quote_builder.search import (
     excerpt,
     hidden_match,
     highlight,
+    highlight_details,
+    highlight_phone,
     matches,
     row_text,
 )
@@ -36,6 +38,40 @@ def test_highlight_matches_the_term_as_typed():
 @pytest.mark.parametrize("term", ["", "   "])
 def test_highlight_with_no_term(term):
     assert highlight("a < b", term) == "a &lt; b"
+
+
+def test_highlight_phone_marks_the_matched_digit_run():
+    # A run that spans separators is marked whole, separators included.
+    assert highlight_phone("(123) 456-7890", "4567890") == (
+        f"(123) {MARK}456-7890</mark>"
+    )
+    assert highlight_phone("(123) 456-7890", "456") == f"(123) {MARK}456</mark>-7890"
+    # The run spans from the first matched digit to the last, so the
+    # leading "(" stays outside the mark.
+    assert highlight_phone("(123) 456-7890", "1234567890") == (
+        f"({MARK}123) 456-7890</mark>"
+    )
+
+
+def test_highlight_phone_without_a_digit_match_is_plain():
+    assert highlight_phone("(123) 456-7890", "999") == "(123) 456-7890"
+    assert highlight_phone("(123) 456-7890", "jane") == "(123) 456-7890"
+
+
+def test_highlight_details_marks_the_phone_by_digits_and_the_rest_as_typed():
+    details = "12 Oak St · (123) 456-7890 · jane@example.com"
+    # A digit run that spans separators marks the phone, nothing else.
+    assert highlight_details(details, "4567890") == (
+        f"12 Oak St · (123) {MARK}456-7890</mark> · jane@example.com"
+    )
+    # A non-phone term still marks its text.
+    assert highlight_details(details, "oak") == (
+        f"12 {MARK}Oak</mark> St · (123) 456-7890 · jane@example.com"
+    )
+
+
+def test_highlight_details_without_a_phone_falls_back_to_plain_highlight():
+    assert highlight_details("jane@example.com", "jane") == f"{MARK}jane</mark>@example.com"
 
 
 def test_matches():
@@ -104,9 +140,23 @@ def customer(revision, position, text):
 
 
 def test_hidden_match_in_the_customers_details():
-    texts = [customer(0, 0, "Jane Doe"), customer(0, 2, "555-0134")]
-    found = hidden_match(summary(customer_name="Jane Doe"), texts, "0134")
-    assert found == HiddenMatch("Customer", "555-0134", 0)
+    texts = [customer(0, 0, "Jane Doe"), customer(0, 3, "12 Oak St")]
+    found = hidden_match(summary(customer_name="Jane Doe"), texts, "oak")
+    assert found == HiddenMatch("Customer", "12 Oak St", 0)
+
+
+def test_hidden_match_in_a_phone_matches_by_digits_and_shows_formatted():
+    # The phone is stored as digits (position 2); a search of its digits,
+    # punctuated however, finds it, and the excerpt shows it formatted.
+    texts = [customer(0, 2, "1234560134")]
+    for term in ("0134", "(123) 456-0134", "1234560134"):
+        found = hidden_match(summary(customer_name="Jane Doe"), texts, term)
+        assert found == HiddenMatch("Customer", "(123) 456-0134", 0, is_phone=True)
+
+
+def test_no_hidden_phone_match_for_a_text_search():
+    texts = [customer(0, 2, "1234560134")]
+    assert hidden_match(summary(customer_name="Jane Doe"), texts, "jane") is None
 
 
 def test_hidden_match_in_an_older_versions_customer():
