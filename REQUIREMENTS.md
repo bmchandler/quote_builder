@@ -489,7 +489,10 @@ Built (as of 2026-11-01), each with tests:
     Untaxed leaves the boxes ticked, so switching back restores the
     tax. The rate counts as a change for "Discard unsaved changes?".
     A quoted quote shows "Tax: Home county 7.25%" ("Tax: Untaxed"),
-    and its lines say "taxed".
+    and its lines say "taxed". A line's own figure (in the form, after
+    its Tax box; on a quoted quote, its "= ") includes its tax when it's
+    taxed, so ticking Tax changes it and a line's share of the tax is
+    plain, not only the foot's total (decided 2026-11-04).
   - Tax changed on a revision (decided 2026-11-02): a revision draft
     takes its rate as it is now, so when its percent differs from what
     the version before was quoted at, an amber banner under the heading

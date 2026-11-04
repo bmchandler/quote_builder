@@ -355,12 +355,27 @@ async def test_totals_update_as_you_type(user, conn):
     user.find(marker="discount-1").type("10%")
     user.find(marker="taxed-1").click()
 
-    # $75.00 - 10% = $67.50; 7.25% tax on that = $4.89 ($4.894).
-    await eventually(lambda: text(user.find(marker="line-total-1")) == "$67.50")
+    # $75.00 - 10% = $67.50; 7.25% tax on that = $4.89 ($4.894); the
+    # line shows the tax-included $72.39, as it's taxed.
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$72.39")
     assert text(user.find(marker="foot-items")) == "$75.00"
     assert text(user.find(marker="foot-discounts")) == "-$7.50"
     assert text(user.find(marker="foot-tax")) == "$4.89"
     assert text(user.find(marker="foot-total")) == "$72.39"
+
+
+async def test_a_lines_figure_includes_its_tax_when_taxed(user, conn):
+    rate_725(conn)
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "100")
+
+    # Untaxed: the net price.
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$100.00")
+    user.find(marker="taxed-1").click()
+    # Taxed: $100.00 + 7.25% = $107.25.
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$107.25")
+    user.find(marker="taxed-1").click()
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$100.00")
 
 
 async def test_new_quote_starts_at_zero(user):
@@ -438,7 +453,8 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
 
-    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, taxed = $67.50")
+    # $67.50 net + $4.89 tax: the taxed line shows its tax-included total.
+    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, taxed = $72.39")
     assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
     assert text(user.find(marker="foot-total")) == "$72.39"
 

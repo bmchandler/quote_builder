@@ -1587,7 +1587,10 @@ def quote_editor(
                 continue
             try:
                 item = line.item()
-                line.total.text = format_money(line_totals(item, percent).net_cents)
+                # The line's figure includes its tax when it's taxed (tax is
+                # zero otherwise), so ticking Tax changes the number: a line's
+                # share of the tax is plain, not only the foot's total.
+                line.total.text = format_money(line_totals(item, percent).total_cents)
                 items.append(item)
             except ValueError:
                 line.total.text = "—"  # shown until the line reads
@@ -1930,8 +1933,10 @@ def quote_view(
             rest += f", less {discount}"
         if item.taxed:
             rest += ", taxed"
-        net = shown_line_totals(item, quote.tax_percent).net_cents
-        rest += f" = {format_money(net)}"
+        # The figure includes the line's tax when taxed, as the editor's
+        # does (tax is zero otherwise), so a line's share of the tax shows.
+        total = shown_line_totals(item, quote.tax_percent).total_cents
+        rest += f" = {format_money(total)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals_foot(shown_quote_totals(quote))
     if quote.notes:
