@@ -32,6 +32,11 @@ uv run pytest
 Screen tests (tests/test_app.py) use NiceGUI's simulated user, so they
 need no window or browser.
 
+The suite runs in parallel across cores (pytest-xdist, `-n auto` in
+`pyproject.toml`), since each test gets its own temp database and
+in-process user. To debug one failure with ordered output, turn that
+off with `uv run pytest -n0`.
+
 ## Code layout
 
 All in `src/quote_builder/`:
