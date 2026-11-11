@@ -607,9 +607,34 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next, in order (decided 2026-11-02):
+Next: paused 2026-11-11 with the on-screen app feature-complete.
+Duplicating a quote, the only item that had been queued, is deferred
+to Future (decided 2026-11-11): it's a convenience, not something a
+quote needs, so it waits with the rest.
 
-1. Duplicating a quote.
+To resume — printing, for a production release (decided 2026-11-11 to
+defer): printing is what a production release needs and the largest
+piece left, not a quick one-off. It pulls in prerequisites and design
+choices (see the printing item under Future), so it waits for a
+focused stretch rather than a quick finish. The shortest viable path,
+when picked up:
+
+1. Business details and terms: data fields and a Settings form to
+   enter them. They're deferred to printing today (below), and the
+   printout carries them, so they come first.
+2. Freeze a copy of them onto the quote when it's marked Quoted, as
+   totals and the tax rate freeze now (see Data).
+3. One print path: try printing from the native window first; fall
+   back to a PDF library (MIT-like license) only if it can't.
+4. From and To, with the pilot rule (a person's name, never the
+   pilot's), and the handwrite space when there's no customer.
+
+Cuts to weigh then, to keep it a finish and not a project: one of the
+three sketched layouts rather than all three; terms as a single
+free-text block rather than structured fields; PDF export as a
+fast-follow if native print works. The gating unknown is whether the
+native window can print at all — a cheap spike that decides whether a
+PDF library, and vetting its license, is needed at all.
 
 Business details and terms wait for printing (decided 2026-10-24):
 the app doesn't need them on screen, and keeping them to the
