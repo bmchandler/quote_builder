@@ -918,6 +918,72 @@ async def test_an_expired_quote_can_be_revised(user, conn):
     assert value(user.find(marker="description-1")) == "Mow lawn"
 
 
+async def save_a_draft(user, conn):
+    """Make and save a one-line draft; its number, with the form reopened."""
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find("Save").click()
+    [number] = saved_numbers(conn)
+    await user.should_see(f"{number} (Draft)")
+    return number
+
+
+async def test_copy_a_quoted_quote_starts_a_new_quote(user, conn):
+    saved = quoted(conn)
+    await open_saved(user, saved)
+    user.find(marker="copy").click()
+    await eventually(lambda: heading(user) == "New Quote")
+
+    # The lines carry over, but nothing is stored until Save.
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+    assert saved_numbers(conn) == [saved.number]
+    user.find("Save").click()
+    await eventually(lambda: len(saved_numbers(conn)) == 2)
+
+    new_number = next(n for n in saved_numbers(conn) if n != saved.number)
+    assert load_quote(conn, new_number).status is Status.DRAFT
+    assert load_quote(conn, new_number).line_items[0].description == "Mow lawn"
+    # The original is untouched.
+    assert load_quote(conn, saved.number).status is Status.QUOTED
+
+
+async def test_copy_a_clean_draft_starts_a_new_quote(user, conn):
+    number = await save_a_draft(user, conn)
+    user.find(marker="copy").click()
+    await eventually(lambda: heading(user) == "New Quote")
+
+    assert value(user.find(marker="description-1")) == "Mow lawn"
+    assert saved_numbers(conn) == [number]  # the copy isn't saved yet
+
+
+async def test_copy_a_dirty_draft_saves_it_first_then_copies(user, conn):
+    number = await save_a_draft(user, conn)
+    user.find(marker="description-1").clear().type("Trim hedges")
+    user.find(marker="copy").click()
+
+    await user.should_see("Save before copying?")
+    user.find("Save & Copy").click()
+    await eventually(lambda: heading(user) == "New Quote")
+
+    # The edit was saved on the original and carried into the copy.
+    assert load_quote(conn, number).line_items[0].description == "Trim hedges"
+    assert value(user.find(marker="description-1")) == "Trim hedges"
+
+
+async def test_keep_editing_cancels_the_copy(user, conn):
+    number = await save_a_draft(user, conn)
+    user.find(marker="description-1").clear().type("Trim hedges")
+    user.find(marker="copy").click()
+
+    await user.should_see("Save before copying?")
+    user.find("Keep Editing").click()
+    await eventually(lambda: heading(user) == f"{number} (Draft)")
+
+    # Nothing saved, nothing copied; the edit stays in the form, unsaved.
+    assert load_quote(conn, number).line_items[0].description == "Mow lawn"
+    assert saved_numbers(conn) == [number]
+
+
 def quoted_at(conn, rate, valid_until=VALID_UNTIL):
     """A quoted quote taxed at `rate`, as it is now."""
     quote = make_quote(

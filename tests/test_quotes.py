@@ -1,8 +1,16 @@
+from datetime import date
 from decimal import Decimal
 
 from quote_builder.business import TaxPart, TaxRate
+from quote_builder.customers import Customer
 from quote_builder.quotes import (
+    Extension,
+    LineItem,
+    LineTotals,
     Quote,
+    QuoteTotals,
+    Status,
+    duplicate_draft,
     extend_tax_note,
     rate_changed_note,
     tax_change_note,
@@ -162,3 +170,41 @@ def test_a_quoted_quotes_rate_deleted():
         "Home county, which this was quoted at (7.25%), is no longer a tax rate. "
         "Extending keeps 7.25%."
     )
+
+
+def test_duplicate_draft_is_a_fresh_quote_keeping_the_changeable_parts():
+    customer = Customer(business_id=1, name="Jane Doe")
+    finalized = Quote(
+        business_id=1,
+        number="Q-7KQ-M9XD",
+        revision=2,
+        status=Status.QUOTED,
+        issued_on=date(2026, 9, 1),
+        valid_until=date(2026, 10, 1),
+        notes="Front and back.",
+        line_items=[
+            LineItem("Mow lawn", Decimal(1), 4500, frozen=LineTotals(4500, 0, 326))
+        ],
+        tax_rate_id=1,
+        tax_name="Home county",
+        tax_percent=Decimal("7.25"),
+        frozen=QuoteTotals(4500, 0, 326, 4826),
+        extensions=[Extension(date(2026, 9, 15), date(2026, 10, 1), date(2026, 10, 31))],
+        customer=customer,
+    )
+    copy = duplicate_draft(finalized)
+    # A brand-new quote, not a revision, with nothing the finalized
+    # version was given.
+    assert copy.number is None
+    assert copy.revision == 0
+    assert copy.status is Status.DRAFT
+    assert copy.issued_on is None and copy.valid_until is None
+    assert copy.frozen is None
+    assert copy.extensions == []
+    assert copy.tax_name == "" and copy.tax_percent == Decimal(0)
+    # Carried over, as changeable; the lines lose their frozen figures.
+    assert copy.business_id == 1
+    assert copy.notes == "Front and back."
+    assert copy.tax_rate_id == 1
+    assert copy.customer == customer
+    assert copy.line_items == [LineItem("Mow lawn", Decimal(1), 4500)]

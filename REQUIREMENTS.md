@@ -47,7 +47,7 @@ Out of scope:
 Future (not now):
 
 - Turning a quote into an invoice.
-- Duplicating a quote, or quote templates.
+- Quote templates.
 - CSV export.
 - Printing a quote, and exporting it as a PDF (put off until much
   later, decided 2026-10-17). Print straight from the app first, if the
@@ -575,11 +575,27 @@ Built (as of 2026-11-01), each with tests:
     it.
   - Buttons on a quoted quote (decided 2026-11-04): Extend and Revise
     (outlined, as they were) sit at the quote heading's right, Extend
-    then Revise, on one line. The Version history link, when there is
-    one, tucks below the quote number instead of beside them, so the
-    heading's width stays the same with or without a history. The
-    buttons were below the tax line in the body before; up here a
-    line's figures aren't split by them.
+    then Revise, then Copy (decided 2026-11-16), on one line. The
+    Version history link, when there is one, tucks below the quote
+    number instead of beside them, so the heading's width stays the same
+    with or without a history. The buttons were below the tax line in
+    the body before; up here a line's figures aren't split by them.
+    Their icons were dropped (decided 2026-11-16) so the three text-only
+    labels fit comfortably at the 1000-pixel window width.
+  - Duplicating a quote (decided 2026-11-16): a Copy button, at the
+    heading's right, starts a new quote (its own number, drawn on save)
+    copying the lines, notes, tax rate, and customer, as changeable; it
+    opens as an unsaved "New Quote" draft, so nothing is stored until
+    Save. None of what a finalized version was given carries over (its
+    number and revision, dates, frozen figures, extensions, status), so
+    a copy is a plain new quote, not a revision. Copy is offered on any
+    quote: a draft (new or saved) as well as a finalized one. On a draft
+    it copies the current form contents, so unsaved edits come along; a
+    draft with unsaved changes is saved first, through a "Save before
+    copying?" dialog (Keep Editing, Save & Copy), so those edits aren't
+    left only on the copy. A quote's tax rate follows the business's
+    rates as they are now, as a revision's does, so a copy of a quote
+    taxed at a since-deleted rate opens Untaxed.
   - Opening the version a search found (decided 2026-10-20): while
     searching, clicking a row opens the newest version that matched
     (an older one, if that's where the match is), so the user can
@@ -607,10 +623,10 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next: paused 2026-11-11 with the on-screen app feature-complete.
-Duplicating a quote, the only item that had been queued, is deferred
-to Future (decided 2026-11-11): it's a convenience, not something a
-quote needs, so it waits with the rest.
+Next: with duplicating done (2026-11-16), the on-screen app is
+feature-complete and printing is what's left (below). Duplicating had
+been deferred to Future on 2026-11-11, then brought back on 2026-11-16
+to round off the non-print work before the focused printing stretch.
 
 To resume — printing, for a production release (decided 2026-11-11 to
 defer): printing is what a production release needs and the largest

@@ -52,6 +52,7 @@ from quote_builder.quotes import (
     QuoteSummary,
     QuoteTotals,
     Status,
+    duplicate_draft,
     extend_tax_note,
     rate_changed_note,
     revision_draft,
@@ -151,6 +152,7 @@ def quote_page(
                         today=today,
                         new_revision=new_revision,
                         on_history=on_history,
+                        on_copy=show,
                         term=search_term(),
                     )
                 else:
@@ -166,6 +168,7 @@ def quote_page(
                         ),
                         on_extend=lambda: extend(quote),
                         on_revise=revise_action(quote, versions),
+                        on_copy=lambda: show(duplicate_draft(quote)),
                         on_history=on_history,
                         newer=newest if newest.revision != quote.revision else None,
                         on_newest=lambda: open_quote(quote.number),
@@ -545,6 +548,26 @@ async def confirm_discard(name: str) -> bool:
             ui.button("Discard", on_click=lambda: dialog.submit(True)).props(
                 "color=negative"
             )
+    # Esc or a click outside closes it with None: keep editing.
+    answer = await dialog
+    dialog.delete()
+    return answer is True
+
+
+async def confirm_save_before_copy(name: str) -> bool:
+    """Ask whether to save `name` before copying it; True to save and copy.
+
+    Copy opens a new quote from the current contents, so a draft with
+    unsaved edits is saved first, or they'd be left only on the copy.
+    """
+    with ui.dialog() as dialog, ui.card():
+        ui.label("Save before copying?").classes("text-h6")
+        ui.label(f"Copy opens a new quote from {name}, which has unsaved changes.")
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Keep Editing", on_click=lambda: dialog.submit(False)).props(
+                "flat"
+            )
+            ui.button("Save & Copy", on_click=lambda: dialog.submit(True))
     # Esc or a click outside closes it with None: keep editing.
     answer = await dialog
     dialog.delete()
@@ -1451,13 +1474,14 @@ def quote_editor(
     today: Callable[[], date],
     new_revision: bool = False,
     on_history: Callable[[], None] | None = None,
+    on_copy: Callable[[Quote], None] | None = None,
     term: str = "",
 ) -> Editor:
     """A form for a draft, new or saved; `on_saved` gets it once saved.
 
-    `new_revision` if it's a revision draft not saved yet. While
-    searching for `term`, description and notes fields holding it are
-    tinted.
+    `new_revision` if it's a revision draft not saved yet. `on_copy`
+    gets a new quote copied from the form, to show. While searching for
+    `term`, description and notes fields holding it are tinted.
     """
     if quote.number is None:
         heading = "New Quote"
@@ -1465,7 +1489,24 @@ def quote_editor(
         heading = f"{name_of(quote)} (New revision)"
     else:
         heading = f"{name_of(quote)} ({quote.status})"
-    quote_heading(heading, on_history)
+
+    async def copy() -> None:
+        """Copy the form into a new quote. A draft with unsaved edits is
+        saved first, so they're not left only on the copy."""
+        changed = changed_quote()
+        if changed is None:  # a field that doesn't read; it said so
+            return
+        if form_state() != opened_with:
+            if not await confirm_save_before_copy(name_of(quote)):
+                return
+            changed = persist(changed)
+            ui.notify(f"Saved {name_of(changed)}")
+        on_copy(duplicate_draft(changed))
+
+    def copy_action() -> None:
+        ui.button("Copy", on_click=copy).props("outline").mark("copy")
+
+    quote_heading(heading, on_history, actions=copy_action if on_copy else None)
     show_tax_change = None
     if quote.revision > 0:
         before = load_quote(conn, quote.number, quote.revision - 1)
@@ -1664,18 +1705,21 @@ def quote_editor(
             )
         )
 
+    def persist(changed: Quote) -> Quote:
+        """Save the draft `changed` and return it (with a number, if new)."""
+        if changed.number is None:
+            return save_new_quote(conn, changed)
+        if new_revision:
+            save_revision(conn, changed)
+        else:
+            save_draft(conn, changed)
+        return changed
+
     def save() -> None:
         changed = changed_quote()
         if changed is None:
             return
-        if changed.number is None:
-            saved = save_new_quote(conn, changed)
-        elif new_revision:
-            save_revision(conn, changed)
-            saved = changed
-        else:
-            save_draft(conn, changed)
-            saved = changed
+        saved = persist(changed)
         ui.notify(f"Saved {name_of(saved)}")
         on_saved(saved)
 
@@ -1888,6 +1932,7 @@ def totals_foot(totals: QuoteTotals | None) -> None:
 def quote_view(
     quote: Quote,
     on_extend: Callable[[], None],
+    on_copy: Callable[[], None],
     on_revise: Callable[[], None] | None = None,
     on_history: Callable[[], None] | None = None,
     newer: QuoteSummary | None = None,
@@ -1904,14 +1949,14 @@ def quote_view(
     tax rate has changed since it was quoted, if it should say.
     """
     def view_actions() -> None:
-        """Extend and Revise, at the heading's right (none on a version
-        that's neither Quoted nor Expired and can't be revised)."""
+        """Extend, Revise, and Copy, at the heading's right. Extend and
+        Revise drop off a version that's neither Quoted nor Expired and
+        can't be revised; Copy is always offered."""
         if quote.status in (Status.QUOTED, Status.EXPIRED):
-            ui.button("Extend", icon="event", on_click=on_extend).props("outline")
+            ui.button("Extend", on_click=on_extend).props("outline")
         if on_revise is not None:
-            ui.button("Revise", icon="edit_note", on_click=on_revise).props(
-                "outline"
-            ).mark("revise")
+            ui.button("Revise", on_click=on_revise).props("outline").mark("revise")
+        ui.button("Copy", on_click=on_copy).props("outline").mark("copy")
 
     quote_heading(f"{name_of(quote)} ({quote.status})", on_history, actions=view_actions)
     if newer is not None:

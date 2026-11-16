@@ -211,3 +211,22 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
         tax_rate_id=quote.tax_rate_id,
         customer=quote.customer,  # the quote's own copy, not the list's
     )
+
+
+def duplicate_draft(quote: Quote) -> Quote:
+    """A new, unsaved draft copying `quote` into a fresh quote.
+
+    It keeps the lines, notes, tax rate, and customer, as changeable,
+    but is a brand-new quote: its own number (drawn on save), not a
+    revision of `quote`. None of what a finalized version was given
+    carries over: its number and revision, dates, frozen figures,
+    extensions, or status.
+    """
+    return Quote(
+        business_id=quote.business_id,
+        notes=quote.notes,
+        line_items=[replace(item, frozen=None) for item in quote.line_items],
+        # The same rate, as it is now (filled in when it's shown).
+        tax_rate_id=quote.tax_rate_id,
+        customer=quote.customer,  # the quote's own copy, not the list's
+    )
