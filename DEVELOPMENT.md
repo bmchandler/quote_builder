@@ -53,6 +53,7 @@ All in `src/quote_builder/`:
 - `dates.py`: reading and showing dates, and valid-through dates.
 - `totals.py`: what a line and a quote add up to.
 - `search.py`: showing where a search matched (highlights, excerpts).
+- `printout.py`: a quote as a standalone HTML page for the browser.
 - `quote_numbers.py`: new quote numbers.
 - `storage.py`, `schema.sql`: the SQLite database.
 - `data_folder.py`: where the database lives.

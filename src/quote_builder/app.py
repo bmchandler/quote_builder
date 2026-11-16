@@ -5,10 +5,13 @@ A first, bare layout, growing a step at a time.
 
 import html
 import sqlite3
+import tempfile
+import webbrowser
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import NamedTuple
 
 from nicegui import ui
@@ -45,6 +48,7 @@ from quote_builder.phones import (
     parse_phone,
     phone_matches,
 )
+from quote_builder.printout import render_quote_html
 from quote_builder.quotes import (
     REVISABLE,
     LineItem,
@@ -108,11 +112,15 @@ from quote_builder.totals import (
 
 
 def quote_page(
-    conn: sqlite3.Connection, today: Callable[[], date] = date.today
+    conn: sqlite3.Connection,
+    today: Callable[[], date] = date.today,
+    open_url: Callable[[str], None] = webbrowser.open,
 ) -> Callable[[], None]:
     """The function NiceGUI calls to build the page, using `conn`.
 
-    `today` gives the date, for tests to set.
+    `today` gives the date, for tests to set. `open_url` opens the
+    printout in the browser (the default opens the user's); tests pass
+    a fake to capture it.
     """
 
     def root() -> None:
@@ -169,6 +177,7 @@ def quote_page(
                         on_extend=lambda: extend(quote),
                         on_revise=revise_action(quote, versions),
                         on_copy=lambda: show(duplicate_draft(quote)),
+                        on_print=lambda: print_quote(quote),
                         on_history=on_history,
                         newer=newest if newest.revision != quote.revision else None,
                         on_newest=lambda: open_quote(quote.number),
@@ -274,6 +283,17 @@ def quote_page(
                     revision_draft(quote, newest.revision + 1), new_revision=True
                 )
             return None
+
+        def print_quote(quote: Quote) -> None:
+            """Write the quote's printout to a temp file and open it in the
+            browser, where Print offers Save as PDF."""
+            html_text = render_quote_html(quote, current_business(conn))
+            folder = Path(tempfile.gettempdir()) / "quote_builder"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{name_of(quote)}.html"
+            path.write_text(html_text, encoding="utf-8")
+            open_url(path.as_uri())
+            ui.notify("Opened the printout in your browser")
 
         async def may_leave() -> bool:
             """True if there's nothing unsaved, or the user lets it go."""
@@ -2012,6 +2032,7 @@ def quote_view(
     quote: Quote,
     on_extend: Callable[[], None],
     on_copy: Callable[[], None],
+    on_print: Callable[[], None],
     on_revise: Callable[[], None] | None = None,
     on_history: Callable[[], None] | None = None,
     newer: QuoteSummary | None = None,
@@ -2028,14 +2049,15 @@ def quote_view(
     tax rate has changed since it was quoted, if it should say.
     """
     def view_actions() -> None:
-        """Extend, Revise, and Copy, at the heading's right. Extend and
-        Revise drop off a version that's neither Quoted nor Expired and
-        can't be revised; Copy is always offered."""
+        """Extend, Revise, Copy, and Print, at the heading's right. Extend
+        and Revise drop off a version that's neither Quoted nor Expired and
+        can't be revised; Copy and Print are always offered."""
         if quote.status in (Status.QUOTED, Status.EXPIRED):
             ui.button("Extend", on_click=on_extend).props("outline")
         if on_revise is not None:
             ui.button("Revise", on_click=on_revise).props("outline").mark("revise")
         ui.button("Copy", on_click=on_copy).props("outline").mark("copy")
+        ui.button("Print", on_click=on_print).props("outline").mark("print")
 
     quote_heading(f"{name_of(quote)} ({quote.status})", on_history, actions=view_actions)
     if newer is not None:

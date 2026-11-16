@@ -928,6 +928,28 @@ async def save_a_draft(user, conn):
     return number
 
 
+async def test_print_opens_the_quote_in_the_browser(conn):
+    from pathlib import Path
+    from urllib.parse import unquote, urlparse
+
+    opened = []
+    saved = quoted(conn)
+    root = quote_page(conn, today=lambda: TODAY, open_url=opened.append)
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        user.find(marker=f"quote-{saved.number}").click()
+        await eventually(lambda: (heading(user) or "").startswith(saved.number))
+        user.find(marker="print").click()
+        await user.should_see("Opened the printout in your browser")
+
+    assert len(opened) == 1
+    [url] = opened
+    assert url.startswith("file://")
+    html = Path(unquote(urlparse(url).path)).read_text(encoding="utf-8")
+    assert saved.number in html
+    assert "Mow lawn" in html
+
+
 async def test_copy_a_quoted_quote_starts_a_new_quote(user, conn):
     saved = quoted(conn)
     await open_saved(user, saved)

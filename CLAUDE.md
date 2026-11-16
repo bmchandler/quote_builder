@@ -197,8 +197,9 @@ of one: a second copy drifts, and can mask a problem in this file.
   money.py and dates.py (text in and out: `parse_*` raise ValueError with a
   message for the user, `format_*`), totals.py (all money math),
   search.py (search matches: escaped HTML with `<mark>`, excerpts),
-  storage.py + schema.sql (all SQL), app.py (NiceGUI only; calls the
-  others). Never float for money: text goes straight to
+  printout.py (a quote as a standalone HTML page for the browser;
+  `render_quote_html`, a pure function), storage.py + schema.sql (all
+  SQL), app.py (NiceGUI only; calls the others). Never float for money: text goes straight to
   `Decimal`, cents are `int`; no `ui.number`.
 - storage.py: `connect` sets `PRAGMA foreign_keys = ON` while in
   autocommit (it's a no-op inside a transaction), runs schema.sql, then

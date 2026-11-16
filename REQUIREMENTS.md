@@ -615,6 +615,26 @@ Built (as of 2026-11-01), each with tests:
     left only on the copy. A quote's tax rate follows the business's
     rates as they are now, as a revision's does, so a copy of a quote
     taxed at a since-deleted rate opens Untaxed.
+  - Printout (decided 2026-11-16): a Print button, at a finalized
+    quote's heading right (after Copy), writes the quote as a
+    standalone HTML page and opens it in the user's default browser,
+    where the page asks to print itself so Save as PDF is one step away
+    (no PDF library; see Status and plan for the spike). Layout A, the
+    letterhead: the business's name and contact details centered at the
+    top, above the quote's heading and dates, "Prepared for" the
+    customer, the tax rate, the lines (each with its figure), the
+    totals foot, then Notes and, below them, Terms when present (Terms
+    are the bottom-most part of the page; decided 2026-11-16). The
+    page's own "Print / Save as PDF" button is in the app's primary
+    blue, so the printout matches the window. It renders from the
+    business's details as they are now; freezing a copy onto the quote
+    at Mark Quoted is next (see Status and plan), so an issued quote's
+    printout doesn't shift if those details later change. On a draft
+    there's no Print yet (a draft is a work in progress, not something
+    to send); a quote with no customer has no "Prepared for" line, with
+    the handwrite space still to come. The page is self-contained (its
+    styles inline) and written to a temp file, so it opens from a file,
+    not the running server.
   - Opening the version a search found (decided 2026-10-20): while
     searching, clicking a row opens the newest version that matched
     (an older one, if that's where the match is), so the user can
@@ -657,18 +677,21 @@ the browser route sidesteps that and keeps the print layout decoupled
 from the working screen. The earlier plan to try native print first,
 with a PDF library as fallback, is dropped.
 
-The remaining steps:
+The steps (reordered 2026-11-16 to keep each one tryable: the print
+route went before freezing, since freezing alone shows nothing on
+screen while the route is something to try end to end):
 
 1. Business details and terms: done (2026-11-16). A business's Address,
    Phone (with an extension), Email, Website, and a single free-text
    Terms block, entered in its Settings and stored per business; the
    printout carries them. See the Settings screen item.
-2. Freeze a copy of them onto the quote when it's marked Quoted, as
-   totals and the tax rate freeze now (see Data).
-3. The print route: a page per quote, rendering the frozen details,
-   customer, lines, totals, and terms, opened in the default browser
-   for Print → Save as PDF. One of the three sketched layouts (see the
-   printing item under Future), not all three.
+2. The print route: done (2026-11-16), layout A, the letterhead (see
+   the Printout screen item). Renders from live business details for
+   now; freezing (next) will feed it the quote's own copies.
+3. Freeze a copy of the business's details and terms onto the quote
+   when it's marked Quoted, as totals and the tax rate freeze now (see
+   Data), so a quoted quote's printout doesn't shift if the business's
+   details later change.
 4. From and To, with the pilot rule (a person's name, never the
    pilot's), and the handwrite space when there's no customer.
 
@@ -682,4 +705,7 @@ Polish to weigh once the main features are done (started
 2026-11-01). Captured so it isn't lost, not promised: an item may no
 longer fit by then, or the work before may have changed it.
 
-- (None open right now.)
+- A setting to open the printout to the browser's normal view rather
+  than straight to the print dialog (noted 2026-11-16, possible not
+  planned): the page asks to print itself on load today; some users may
+  prefer to see it first and print when ready.
