@@ -18,7 +18,17 @@ CREATE TABLE IF NOT EXISTS businesses (
     valid_days INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0),
     -- Days Extend offers first; NULL (unset) for its own first, 30. A
     -- CHECK passes on NULL (NULL > 0 is unknown, not false).
-    extend_days INTEGER CHECK (extend_days > 0)
+    extend_days INTEGER CHECK (extend_days > 0),
+    -- Details for the printout, each blank until given. The phone is
+    -- stored as its ten digits (shown formatted), as a customer's is.
+    address    TEXT    NOT NULL DEFAULT '',
+    phone      TEXT    NOT NULL DEFAULT '',
+    -- A phone extension, digits only, kept apart as a customer's is.
+    ext        TEXT    NOT NULL DEFAULT '',
+    email      TEXT    NOT NULL DEFAULT '',
+    website    TEXT    NOT NULL DEFAULT '',
+    -- A single free-text block, as typed, line breaks and all.
+    terms      TEXT    NOT NULL DEFAULT ''
 ) STRICT;
 
 -- A business's sales tax rates, each the sum of its parts.

@@ -50,9 +50,11 @@ Future (not now):
 - Quote templates.
 - CSV export.
 - Printing a quote, and exporting it as a PDF (put off until much
-  later, decided 2026-10-17). Print straight from the app first, if the
-  native window can. A PDF library must have an MIT-like license.
-  It brings the business's details and terms (see Data), copied onto
+  later, decided 2026-10-17; now underway, see Status and plan). The
+  printout opens as its own page in the user's default browser, where
+  Print → Save as PDF gives a PDF with no library and no licensing
+  (decided 2026-11-16, from a spike; the native window can't print on
+  its own). It brings the business's details and terms (see Data), copied onto
   a quote when it's marked Quoted, and a From and To on the printout:
   for a pilot, a person's name and contact details, never the
   pilot's name. Layouts to weigh then, from sketches on 2026-10-24:
@@ -355,6 +357,23 @@ Built (as of 2026-11-01), each with tests:
     names the field that isn't. Leaving the form with unsaved changes
     (another business, Add, or Back to Quotes) asks first, as a
     quote's form does.
+  - Business details and terms (decided 2026-11-16): for the printout
+    (see Future), on the same form. Between Name and "Quotes valid for
+    (days)": Address (a multi-line box), Phone with a narrow Ext.
+    beside it, Email, and Website, each optional, each with a greyed
+    example. After "Extend by (days)": Terms, a single free-text block
+    (not structured fields), its example "Payment due within 30 days.
+    50% deposit to schedule." The phone is stored as its ten digits and
+    shown in the standard form, snapping to it on leaving the field,
+    and the extension is digits only, as a customer's are (see Phone
+    numbers); a phone that isn't ten digits, or an extension that isn't
+    digits, holds up Save with "Phone: …" or "Ext.: …", like a bad day
+    count. A business extension is less common than a customer's but
+    useful for a partnership or a PBX line (decided 2026-11-16). Blank
+    is fine for all of them. They save with the form's Save, and apply to a pilot as to a
+    business. Not on the screen yet beyond Settings: the printout
+    carries them, and freezing a copy onto a quote at Mark Quoted comes
+    next (see Status and plan).
   - Tax rates (decided 2026-10-24): below a business's settings, under
     "Tax rates", one row per rate ("Home county · 7.25% · Default"),
     by name in any case, and "Add tax rate…". A saved business only:
@@ -623,39 +642,39 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next: with duplicating done (2026-11-16), the on-screen app is
-feature-complete and printing is what's left (below). Duplicating had
-been deferred to Future on 2026-11-11, then brought back on 2026-11-16
-to round off the non-print work before the focused printing stretch.
+Next: printing, for a production release, is underway (started
+2026-11-16). The on-screen app was feature-complete after duplicating
+(2026-11-16); printing is the largest piece left. Duplicating had been
+deferred to Future on 2026-11-11, then brought back on 2026-11-16 to
+round off the non-print work first.
 
-To resume — printing, for a production release (decided 2026-11-11 to
-defer): printing is what a production release needs and the largest
-piece left, not a quick one-off. It pulls in prerequisites and design
-choices (see the printing item under Future), so it waits for a
-focused stretch rather than a quick finish. The shortest viable path,
-when picked up:
+The print path (decided 2026-11-16, from a spike): the printout opens
+in the user's default browser as its own page, where Print → Save as
+PDF gives a PDF with no library and no licensing to vet. The spike
+found pywebview 6.2.1 exposes no native print API and doesn't wire
+WebKitGTK's print signal, so the native window can't print on its own;
+the browser route sidesteps that and keeps the print layout decoupled
+from the working screen. The earlier plan to try native print first,
+with a PDF library as fallback, is dropped.
 
-1. Business details and terms: data fields and a Settings form to
-   enter them. They're deferred to printing today (below), and the
-   printout carries them, so they come first.
+The remaining steps:
+
+1. Business details and terms: done (2026-11-16). A business's Address,
+   Phone (with an extension), Email, Website, and a single free-text
+   Terms block, entered in its Settings and stored per business; the
+   printout carries them. See the Settings screen item.
 2. Freeze a copy of them onto the quote when it's marked Quoted, as
    totals and the tax rate freeze now (see Data).
-3. One print path: try printing from the native window first; fall
-   back to a PDF library (MIT-like license) only if it can't.
+3. The print route: a page per quote, rendering the frozen details,
+   customer, lines, totals, and terms, opened in the default browser
+   for Print → Save as PDF. One of the three sketched layouts (see the
+   printing item under Future), not all three.
 4. From and To, with the pilot rule (a person's name, never the
    pilot's), and the handwrite space when there's no customer.
 
-Cuts to weigh then, to keep it a finish and not a project: one of the
-three sketched layouts rather than all three; terms as a single
-free-text block rather than structured fields; PDF export as a
-fast-follow if native print works. The gating unknown is whether the
-native window can print at all — a cheap spike that decides whether a
-PDF library, and vetting its license, is needed at all.
-
-Business details and terms wait for printing (decided 2026-10-24):
-the app doesn't need them on screen, and keeping them to the
-printout leaves its layout, wording, and output free to change apart
-from the working screen. See Future.
+Terms are a single free-text block (decided 2026-11-16), not structured
+fields, as the cuts had weighed; structured fields can come later if it
+proves too loose.
 
 ## Later polish
 

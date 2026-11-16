@@ -1625,6 +1625,59 @@ async def test_settings_refuse_blank_valid_days(user, conn):
     assert current_business(conn).valid_days == 30
 
 
+async def test_save_business_details(user, conn):
+    await open_settings(user)
+    user.find(marker="business-address").type("12 Oak St")
+    user.find(marker="business-phone").type("123.456.0134")
+    user.find(marker="business-ext").type("12")
+    user.find(marker="business-email").type("hello@acme.example.com")
+    user.find(marker="business-website").type("acme.example.com")
+    user.find(marker="business-terms").type("Payment due within 30 days.")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Settings saved")
+    saved = current_business(conn)
+    assert saved.address == "12 Oak St"
+    assert saved.phone == "1234560134"  # stored as its ten digits
+    assert saved.ext == "12"
+    assert saved.email == "hello@acme.example.com"
+    assert saved.website == "acme.example.com"
+    assert saved.terms == "Payment due within 30 days."
+    # Reopened, the phone shows in the standard form.
+    await eventually(
+        lambda: value(user.find(marker="business-phone")) == "(123) 456-0134"
+    )
+
+
+async def test_business_phone_snaps_to_standard_form(user):
+    await open_settings(user)
+    user.find(marker="business-phone").type("123.456.0134")
+    [phone] = user.find(marker="business-phone").elements
+    send(user, phone, "blur")
+
+    await eventually(
+        lambda: value(user.find(marker="business-phone")) == "(123) 456-0134"
+    )
+
+
+async def test_settings_refuse_a_bad_business_phone(user, conn):
+    await open_settings(user)
+    user.find(marker="business-phone").type("12345")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Phone: '12345' isn't a 10-digit phone number")
+    assert current_business(conn).phone == ""
+
+
+async def test_settings_refuse_a_bad_business_extension(user, conn):
+    await open_settings(user)
+    user.find(marker="business-ext").type("x9")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Ext.: 'x9' isn't an extension")
+    assert current_business(conn).ext == ""
+
+
 def title(user):
     return text(user.find(marker="title"))
 

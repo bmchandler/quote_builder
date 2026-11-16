@@ -640,6 +640,26 @@ def test_add_a_business(conn):
     assert list_businesses(conn)[1] == added  # after the unnamed one
 
 
+def test_business_details_round_trip(conn):
+    # Added with details, and changed again: both carry every field.
+    added = add_business(
+        conn,
+        Business(
+            name="Acme",
+            address="12 Oak St\nSpringfield, IL 62704",
+            phone="1234567890",
+            ext="12",
+            email="hello@acme.example.com",
+            website="acme.example.com",
+            terms="Payment due within 30 days.",
+        ),
+    )
+    assert list_businesses(conn)[1] == added
+    changed = replace(added, phone="5559876543", terms="50% deposit to schedule.")
+    save_business(conn, changed)
+    assert list_businesses(conn)[1] == changed
+
+
 def test_a_new_business_needs_a_name(conn):
     with pytest.raises(NameNeeded):
         add_business(conn, Business())

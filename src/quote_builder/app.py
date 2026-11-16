@@ -664,6 +664,58 @@ def business_settings(
             name.props.pop("hint", None)  # props is observed: no update() needed
 
     show_kind()
+    # Details for the printout; blank is fine for any of them.
+    address = (
+        ui.textarea("Address", value=business.address)
+        .props(
+            'stack-label autogrow input-class="placeholder:text-gray-400"'
+            ' placeholder="12 Oak St, Springfield, IL 62704"'
+        )
+        .classes("w-96")
+        .mark("business-address")
+    )
+    with ui.row().classes("no-wrap gap-2 w-96"):
+        phone = (
+            ui.input("Phone", value=format_phone(business.phone))
+            .props(
+                'stack-label input-class="placeholder:text-gray-400"'
+                ' placeholder="(123) 456-7890"'
+            )
+            .classes("grow")
+            .mark("business-phone")
+        )
+        ext = (
+            ui.input("Ext.", value=business.ext)
+            .props('stack-label input-class="placeholder:text-gray-400" placeholder="12"')
+            .classes("w-16")
+            .mark("business-ext")
+        )
+
+    def reformat_phone() -> None:
+        try:
+            phone.value = format_phone(parse_phone(phone.value or ""))
+        except ValueError:
+            pass  # a bad number is caught on Save, with a message
+
+    phone.on("blur", reformat_phone)
+    email = (
+        ui.input("Email", value=business.email)
+        .props(
+            'stack-label input-class="placeholder:text-gray-400"'
+            ' placeholder="john@example.com"'
+        )
+        .classes("w-96")
+        .mark("business-email")
+    )
+    website = (
+        ui.input("Website", value=business.website)
+        .props(
+            'stack-label input-class="placeholder:text-gray-400"'
+            ' placeholder="johnslawn.example.com"'
+        )
+        .classes("w-96")
+        .mark("business-website")
+    )
     valid_days = (
         ui.input("Quotes valid for (days)", value=str(business.valid_days))
         .props('hint="Mark Quoted starts valid-through this many days on"')
@@ -676,7 +728,18 @@ def business_settings(
         .classes("w-96")
         .mark("business-extend-days")
     )
-    fields = [kind, name, valid_days, extend_days]
+    terms = (
+        ui.textarea("Terms", value=business.terms)
+        .props(
+            'stack-label autogrow input-class="placeholder:text-gray-400"'
+            ' placeholder="Payment due within 30 days. 50% deposit to schedule."'
+        )
+        .classes("w-96")
+        .mark("business-terms")
+    )
+    fields = [
+        kind, name, address, phone, ext, email, website, valid_days, extend_days, terms,
+    ]
 
     def save() -> None:
         # A cleared input's value is None, not "".
@@ -692,12 +755,28 @@ def business_settings(
             except ValueError as problem:
                 ui.notify(f"Extend by: {problem}", type="negative")
                 return
+        try:
+            phone_digits = parse_phone(phone.value or "")
+        except ValueError as problem:
+            ui.notify(f"Phone: {problem}", type="negative")
+            return
+        try:
+            ext_digits = parse_ext(ext.value or "")
+        except ValueError as problem:
+            ui.notify(f"Ext.: {problem}", type="negative")
+            return
         changed = replace(
             business,
             name=(name.value or "").strip(),
             pilot=kind.value == "pilot",
             valid_days=days,
             extend_days=extend,
+            address=(address.value or "").strip(),
+            phone=phone_digits,
+            ext=ext_digits,
+            email=(email.value or "").strip(),
+            website=(website.value or "").strip(),
+            terms=(terms.value or "").strip(),
         )
         try:
             if changed.id is None:

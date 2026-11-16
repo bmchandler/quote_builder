@@ -65,7 +65,10 @@ class NameNeeded(Exception):
     """A business was left without a name while there's more than one."""
 
 
-_BUSINESS_COLUMNS = "id, name, pilot, valid_days, extend_days"
+_BUSINESS_COLUMNS = (
+    "id, name, pilot, valid_days, extend_days, "
+    "address, phone, ext, email, website, terms"
+)
 
 
 def _business(row: sqlite3.Row) -> Business:
@@ -134,8 +137,14 @@ def add_business(conn: sqlite3.Connection, business: Business) -> Business:
     with conn:
         row = conn.execute(
             """
-            INSERT INTO businesses (name, pilot, valid_days, extend_days)
-            VALUES (:name, :pilot, :valid_days, :extend_days)
+            INSERT INTO businesses (
+                name, pilot, valid_days, extend_days,
+                address, phone, ext, email, website, terms
+            )
+            VALUES (
+                :name, :pilot, :valid_days, :extend_days,
+                :address, :phone, :ext, :email, :website, :terms
+            )
             RETURNING id
             """,
             vars(business),
@@ -156,7 +165,8 @@ def save_business(conn: sqlite3.Connection, business: Business) -> None:
             """
             UPDATE businesses
             SET name = :name, pilot = :pilot, valid_days = :valid_days,
-                extend_days = :extend_days
+                extend_days = :extend_days, address = :address, phone = :phone,
+                ext = :ext, email = :email, website = :website, terms = :terms
             WHERE id = :id
               AND (:name != '' OR (SELECT count(*) FROM businesses) = 1)
             RETURNING id

@@ -13,6 +13,14 @@ class Business:
     pilot: bool = False  # an idea being tried out, not yet a business
     valid_days: int = VALID_DAYS  # a new quote's valid-through, from issue
     extend_days: int | None = None  # what Extend offers first; None: unset
+    # Details for the printout, each blank until given. The phone is kept
+    # as its ten digits (shown formatted), as a customer's is.
+    address: str = ""
+    phone: str = ""
+    ext: str = ""  # a phone extension, digits only
+    email: str = ""
+    website: str = ""
+    terms: str = ""  # a single free-text block, as typed
 
 
 @dataclass(frozen=True)
