@@ -65,6 +65,12 @@ Future (not now):
   as a trade-name header, and a pilot has no separate person's name.
   A quote without a customer gets a "Prepared for:" label and a ruled
   line to write a name on by hand (noted 2026-11-01; done 2026-11-16).
+  A taxed line shows its own tax beside "taxed" (done 2026-11-17), on
+  the printout and the finalized (Quoted) display, not in the draft
+  editor: `2.5 × $30.00, less 10%, taxed $4.89 = $72.39`, so a customer
+  can check the figures add up and the Quoted display can be checked
+  against the printout. No parentheses, to read like the rest of the
+  line. The figure is the line's tax_cents (shown_line_totals).
   A line's unit is shown to the customer (decided 2026-11-16, settling
   the 2026-11-01 open question); it's wanted before release, see Later
   polish.
@@ -726,13 +732,6 @@ longer fit by then, or the work before may have changed it.
   than straight to the print dialog (noted 2026-11-16, possible not
   planned): the page asks to print itself on load today; some users may
   prefer to see it first and print when ready.
-- Show a taxed line's own tax amount, on finalized quotes and the
-  printout (wanted before release, 2026-11-16): next to "taxed", the
-  line's tax in parentheses, so amounts are easy to double-check by
-  hand — a $15 line at 7.25% reads ", taxed ($1.09)". The figure is the
-  line's tax_cents (shown_line_totals), already computed for the line's
-  total. To settle when built: whether the draft editor's per-line
-  figure shows it too, or only the read-only quote and the printout.
 - Show a line's unit to the customer (decided 2026-11-16, wanted
   before release): a quantity reads "3 hrs." rather than bare "3", on
   the quote and the printout. A line has no unit today; it would take

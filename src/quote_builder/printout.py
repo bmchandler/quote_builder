@@ -106,16 +106,18 @@ def _customer_block(quote: Quote) -> str:
 def _lines_rows(quote: Quote) -> str:
     rows = []
     for item in quote.line_items:
-        figure = shown_line_totals(item, quote.tax_percent).total_cents
+        line_totals = shown_line_totals(item, quote.tax_percent)
         qty_price = f"{item.quantity} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
             qty_price += f", less {discount}"
         if item.taxed:
-            qty_price += ", taxed"
+            # The line's own tax beside "taxed", so a customer can check the
+            # figures add up (no parentheses, to read like the rest).
+            qty_price += f", taxed {format_money(line_totals.tax_cents)}"
         rows.append(
             f"<tr><td>{_esc(item.description)}</td>"
             f"<td>{_esc(qty_price)}</td>"
-            f"<td class='amt'>{format_money(figure)}</td></tr>"
+            f"<td class='amt'>{format_money(line_totals.total_cents)}</td></tr>"
         )
     return "".join(rows)
 

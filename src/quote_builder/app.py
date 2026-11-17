@@ -2100,12 +2100,14 @@ def quote_view(
         rest = f": {item.quantity} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
             rest += f", less {discount}"
-        if item.taxed:
-            rest += ", taxed"
         # The figure includes the line's tax when taxed, as the editor's
         # does (tax is zero otherwise), so a line's share of the tax shows.
-        total = shown_line_totals(item, quote.tax_percent).total_cents
-        rest += f" = {format_money(total)}"
+        line_totals = shown_line_totals(item, quote.tax_percent)
+        if item.taxed:
+            # The line's own tax beside "taxed", for a by-hand double-check
+            # against the printout (no parentheses, to read like the rest).
+            rest += f", taxed {format_money(line_totals.tax_cents)}"
+        rest += f" = {format_money(line_totals.total_cents)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals_foot(shown_quote_totals(quote))
     if quote.notes:

@@ -63,6 +63,8 @@ def test_shows_lines_tax_and_the_total():
     assert "Mow lawn" in html
     assert "Trim hedges" in html
     assert "Tax rate: Home county 7.25%" in html
+    assert "taxed $3.26" in html  # Mow lawn: $45.00 at 7.25%
+    assert "taxed $5.44" in html  # Trim hedges: $75.00 at 7.25%
     assert "$128.70" in html  # 120.00 + 7.25% tax
 
 
