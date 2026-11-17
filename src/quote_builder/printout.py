@@ -58,6 +58,10 @@ _STYLE = """
   .section-h { font-family: Arial, sans-serif; font-size: 11px; color: #777;
                text-transform: uppercase; letter-spacing: .04em; margin: 22px 0 4px; }
   .terms, .notes { font-size: 12.5px; color: #444; white-space: pre-wrap; }
+  /* A quote with no customer: a label and a line to write a name on. */
+  .prepared { margin: 10px 0 0; }
+  .writein { border-bottom: 1px solid #999; height: 22px; width: 60%;
+             margin-top: 4px; }
   .toolbar { text-align: center; margin-bottom: 18px; }
   /* The app's primary blue, so the printout matches the window. */
   .toolbar button { font: inherit; padding: 7px 16px; cursor: pointer;
@@ -84,10 +88,11 @@ def _business_details(business: Business | PrintedBusiness) -> str:
 
 
 def _customer_block(quote: Quote) -> str:
-    """The "Prepared for" block, or a blank for a quote with no customer."""
+    """The "Prepared for" block: the customer's details, or a label and a
+    ruled line to write a name by hand when the quote has no customer."""
     customer = quote.customer
     if customer is None or not (customer.name or customer.details):
-        return ""
+        return "<p class='prepared'>Prepared for:</p><div class='writein'></div>"
     name = f"<b>{_esc(customer.name)}</b>" if customer.name else ""
     lead = "Prepared for " if customer.name else "Prepared for:"
     details = (

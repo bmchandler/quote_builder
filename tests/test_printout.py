@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from quote_builder.business import Business
+from quote_builder.business import Business, PrintedBusiness
 from quote_builder.customers import Customer
 from quote_builder.printout import render_quote_html
 from quote_builder.quotes import LineItem, Quote, Status
@@ -84,9 +84,17 @@ def test_omits_terms_and_notes_when_blank():
     assert "Notes" not in html
 
 
-def test_a_quote_without_a_customer_has_no_prepared_for():
+def test_a_quote_without_a_customer_gets_a_handwrite_space():
     html = render_quote_html(a_quote(customer=None), BIZ)
-    assert "Prepared for" not in html
+    assert "Prepared for:" in html
+    assert "writein" in html  # a ruled line to write a name on
+
+
+def test_a_pilots_activity_name_is_the_from():
+    # Decided 2026-11-16: a pilot's printout shows its activity name as
+    # the From, like a business (no separate person name).
+    html = render_quote_html(a_quote(), PrintedBusiness(name="Pressure washing"))
+    assert "Pressure washing" in html
 
 
 def test_an_untaxed_quote_says_so():

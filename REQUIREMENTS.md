@@ -55,14 +55,16 @@ Future (not now):
   Print → Save as PDF gives a PDF with no library and no licensing
   (decided 2026-11-16, from a spike; the native window can't print on
   its own). It brings the business's details and terms (see Data), copied onto
-  a quote when it's marked Quoted, and a From and To on the printout:
-  for a pilot, a person's name and contact details, never the
-  pilot's name. Layouts to weigh then, from sketches on 2026-10-24:
-  a letterhead above the heading, the details at the top right
-  beside the heading, or From and To boxes under it (a single line
-  of details was ruled out).
-  A quote without a customer gets a space on the printout to write a
-  name or a note by hand (noted 2026-11-01).
+  a quote when it's marked Quoted. The layout is the letterhead
+  (layout A), chosen 2026-11-16 from three sketches on 2026-10-24 (the
+  others: details at the top right beside the heading, or From and To
+  boxes under it; a single line of details was ruled out).
+  A pilot's printout shows its activity name as the From, like a
+  business (decided 2026-11-16, replacing the earlier sketch of a
+  person's name): "Pressure washing" with its contact details reads
+  as a trade-name header, and a pilot has no separate person's name.
+  A quote without a customer gets a "Prepared for:" label and a ruled
+  line to write a name on by hand (noted 2026-11-01; done 2026-11-16).
   Whether and how a customer sees a line's unit ("3 hours") is to be
   settled with it (noted 2026-11-01): a line has no unit today, and
   a field for one is tight in a line's row at the window's width.
@@ -121,10 +123,9 @@ are worked out with `Decimal` and rounded to the cent where shown.
   Business and naming it, in its Settings: its quotes stay with it,
   as they belong to it, not to its name. Also how many days a new
   quote is valid for (30 to start) and how many days Extend offers
-  first; later, for printing, phone, email, website, address (one
-  field, as typed), terms printed at the foot of each quote, and a
-  logo; for a pilot, a person's name and contact details instead of
-  a business name. A default tax rate comes with tax rates. Every
+  first; for printing, phone, email, website, address (one field, as
+  typed), and terms (all added 2026-11-16), with a logo still to come.
+  A default tax rate comes with tax rates. Every
   detail is optional, the name too (decided 2026-10-20): work often
   starts before a business has a legal name, and software that won't
   start without one is a common irritation. An unnamed business is
@@ -636,11 +637,13 @@ Built (as of 2026-11-01), each with tests:
     blue, so the printout matches the window. It reads the business's
     details frozen onto the quote at Mark Quoted (see Data), so an
     issued quote's printout doesn't shift if those details later change.
-    On a draft there's no Print yet (a draft is a work in progress, not something
-    to send); a quote with no customer has no "Prepared for" line, with
-    the handwrite space still to come. The page is self-contained (its
-    styles inline) and written to a temp file, so it opens from a file,
-    not the running server.
+    On a draft there's no Print yet (a draft is a work in progress, not
+    something to send). A pilot's letterhead shows its activity name,
+    like a business's name (decided 2026-11-16). A quote with no
+    customer shows a "Prepared for:" label and a ruled line to write a
+    name on by hand, in place of the customer's details. The page is
+    self-contained (its styles inline) and written to a temp file, so
+    it opens from a file, not the running server.
   - Opening the version a search found (decided 2026-10-20): while
     searching, clicking a row opens the newest version that matched
     (an older one, if that's where the match is), so the user can
@@ -699,8 +702,15 @@ screen while the route is something to try end to end):
    quoted quote's printout doesn't shift if the business's details
    later change; a draft (which has none) still prints from the
    business as it is now.
-4. From and To, with the pilot rule (a person's name, never the
-   pilot's), and the handwrite space when there's no customer.
+4. From and To: done (2026-11-16). The pilot rule was reversed (a
+   pilot's From is its activity name, like a business; see the Printout
+   item), so this came down to the handwrite space: a quote with no
+   customer gets a "Prepared for:" label and a ruled line to write on.
+
+Printing is feature-complete with step 4 (2026-11-16): details and
+terms, the print route, freezing, and the handwrite space are all in.
+What's left for a production release is weighing the printing polish
+in Future (a banner image, the line-unit question) if wanted.
 
 Terms are a single free-text block (decided 2026-11-16), not structured
 fields, as the cuts had weighed; structured fields can come later if it
