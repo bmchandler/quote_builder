@@ -109,6 +109,9 @@ from quote_builder.totals import (
     shown_line_totals,
     shown_quote_totals,
 )
+from quote_builder.units import CHOICES as UNIT_CHOICES
+from quote_builder.units import DEFAULT as UNIT_DEFAULT
+from quote_builder.units import format_quantity
 
 
 def quote_page(
@@ -1097,10 +1100,9 @@ async def ask_catalog_item(item: CatalogItem) -> CatalogItem | object | None:
             .classes("w-full")
             .mark("catalog-price")
         )
-        # stack-label and greyed, as the business's Name is.
         unit = (
-            ui.input("Unit", value=item.unit, placeholder="hour, each, flat, etc.")
-            .props('stack-label input-class="placeholder:text-gray-400"')
+            ui.select(UNIT_CHOICES, label="Unit", value=item.unit)
+            .props("stack-label")
             .classes("w-full")
             .mark("catalog-unit")
         )
@@ -1117,7 +1119,7 @@ async def ask_catalog_item(item: CatalogItem) -> CatalogItem | object | None:
                 item,
                 description=(description.value or "").strip(),
                 price_cents=cents,
-                unit=(unit.value or "").strip(),
+                unit=unit.value,
                 taxable=taxable.value,
             )
             check_catalog_item(changed)
@@ -1244,6 +1246,16 @@ class LineInputs:
             self.quantity = text_input(
                 "Qty", str(item.quantity) if item else "1", "quantity", "w-12"
             )
+            self.unit = (
+                ui.select(
+                    UNIT_CHOICES,
+                    value=item.unit if item else UNIT_DEFAULT,
+                    on_change=on_change,
+                )
+                .props("dense options-dense")
+                .classes("w-20")
+                .mark(f"unit-{marker}")
+            )
             self.price = text_input(
                 "Unit price",
                 format_money(item.unit_price_cents) if item else "",
@@ -1289,6 +1301,7 @@ class LineInputs:
         return (
             not self.description.value.strip()
             and self.quantity.value.strip() == "1"
+            and self.unit.value == UNIT_DEFAULT
             and not self.price.value.strip()
             and not self.discount.value.strip()
             and not self.taxed.value
@@ -1303,6 +1316,7 @@ class LineInputs:
         return LineItem(
             description=self.description.value.strip(),
             quantity=parse_quantity(self.quantity.value),
+            unit=self.unit.value,
             unit_price_cents=parse_money(self.price.value),
             taxed=self.taxed.value,
             discount_cents=discount_cents,
@@ -1692,6 +1706,7 @@ def quote_editor(
                 quote.business_id,
                 line.description.value.strip(),
                 price,
+                unit=line.unit.value,
                 taxable=line.taxed.value,
             )
         )
@@ -1859,6 +1874,7 @@ def quote_editor(
             (
                 line.description.value,
                 line.quantity.value,
+                line.unit.value,
                 line.price.value,
                 line.discount.value,
                 line.taxed.value,
@@ -2097,7 +2113,8 @@ def quote_view(
     ui.label(tax).mark("view-tax-rate")
     # A quoted quote shows its frozen figures, not ones worked out again.
     for n, item in enumerate(quote.line_items, start=1):
-        rest = f": {item.quantity} × {format_money(item.unit_price_cents)}"
+        qty = format_quantity(item.quantity, item.unit)
+        rest = f": {qty} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
             rest += f", less {discount}"
         # The figure includes the line's tax when taxed, as the editor's

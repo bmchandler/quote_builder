@@ -68,6 +68,20 @@ def test_shows_lines_tax_and_the_total():
     assert "$128.70" in html  # 120.00 + 7.25% tax
 
 
+def test_shows_each_lines_quantity_with_its_unit():
+    quote = a_quote(
+        line_items=[
+            LineItem("Labor", Decimal(2), 4500, unit="hour", taxed=True),
+            LineItem("Trip fee", Decimal(1), 2000, unit="hour", taxed=True),
+            LineItem("Filter", Decimal(3), 1200, unit="each", taxed=True),
+        ],
+    )
+    html = render_quote_html(quote, BIZ)
+    assert "2 hrs. × $45.00" in html  # plural
+    assert "1 hr. × $20.00" in html  # singular
+    assert "3 ea. × $12.00" in html
+
+
 def test_includes_terms_and_notes_when_present():
     html = render_quote_html(a_quote(), BIZ)
     assert "Payment due within 30 days." in html

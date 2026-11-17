@@ -242,7 +242,7 @@ async def test_open_a_quoted_quote_read_only(user, conn):
     user.find(marker=f"quote-{saved.number}").click()
 
     await user.should_see(f"{saved.number} (Quoted)")
-    await user.should_see("Mow lawn: 1 × $45.00")
+    await user.should_see("Mow lawn: 1 ea. × $45.00")
     await user.should_not_see("Save")
 
 
@@ -455,9 +455,41 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
 
     # $67.50 net + $4.89 tax: the line shows its own tax beside "taxed"
     # and its tax-included total.
-    await user.should_see("Trim hedges: 2.5 × $30.00, less 10%, taxed $4.89 = $72.39")
+    await user.should_see(
+        "Trim hedges: 2.5 ea. × $30.00, less 10%, taxed $4.89 = $72.39"
+    )
     assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
     assert text(user.find(marker="foot-total")) == "$72.39"
+
+
+async def test_read_only_quote_shows_each_lines_unit(user, conn):
+    quote = make_quote(
+        line_items=[
+            LineItem("Labor", Decimal(2), 4500, unit="hour"),
+            LineItem("Trip fee", Decimal(1), 2000, unit="hour"),
+            LineItem("Filter", Decimal(3), 1200, unit="each"),
+        ],
+    )
+    saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+
+    await user.should_see("Labor: 2 hrs. × $45.00 = $90.00")  # plural
+    await user.should_see("Trip fee: 1 hr. × $20.00 = $20.00")  # singular
+    await user.should_see("Filter: 3 ea. × $12.00 = $36.00")
+
+
+async def test_the_line_unit_is_saved_from_the_editor(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Labor", "2.5", "30")
+    [unit] = user.find(marker="unit-1").elements
+    unit.value = "hour"
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Saved Q-")
+    [summary] = list_quotes(conn, BUSINESS)
+    [line] = load_quote(conn, summary.number).line_items
+    assert line.unit == "hour"
 
 
 async def test_an_untaxed_quote_says_so(user, conn):
@@ -1525,7 +1557,7 @@ async def test_open_quote_highlights_the_search(user, conn):
     user.find(marker=f"quote-{saved.number}").click()
     await user.should_see(marker="view-notes")
 
-    assert ">hedges</mark>: 1 × $30.00" in view_html(user, "view-line-1")
+    assert ">hedges</mark>: 1 ea. × $30.00" in view_html(user, "view-line-1")
     assert ">hedges</mark> too." in view_html(user, "view-notes")
 
 
@@ -2157,12 +2189,13 @@ async def test_add_a_catalog_item(user, conn):
     await add_catalog_item(user)
     user.find(marker="catalog-description").type("Mulch")
     user.find(marker="catalog-price").type("$6.50")
-    user.find(marker="catalog-unit").type("each")
+    [unit] = user.find(marker="catalog-unit").elements
+    unit.value = "each"
     user.find(marker="catalog-taxable").click()
     user.find(marker="save-catalog-item").click()
 
     await user.should_see("Saved Mulch")
-    await user.should_see("Mulch · $6.50 / each")
+    await user.should_see("Mulch · $6.50 / ea.")
     [item] = list_catalog_items(conn, BUSINESS)
     assert (item.description, item.price_cents, item.unit, item.taxable) == (
         "Mulch",
@@ -2202,11 +2235,12 @@ async def test_edit_a_catalog_item(user, conn):
     user.find(marker=f"catalog-item-{item.id}").click()
     await user.should_see("Edit catalog item")
     assert value(user.find(marker="catalog-price")) == "$45.00"
-    user.find(marker="catalog-unit").clear().type("flat")
+    [unit] = user.find(marker="catalog-unit").elements
+    unit.value = "each"
     user.find(marker="save-catalog-item").click()
 
-    await user.should_see("Mow lawn · $45.00 / flat")
-    assert list_catalog_items(conn, BUSINESS) == [replace(item, unit="flat")]
+    await user.should_see("Mow lawn · $45.00 / ea.")
+    assert list_catalog_items(conn, BUSINESS) == [replace(item, unit="each")]
 
 
 async def test_delete_a_catalog_item(user, conn):
@@ -2288,7 +2322,7 @@ async def test_catalog_field_shows_this_businesss_items(user, conn):
     other = save_catalog_item(conn, CatalogItem(acme.id, "Acme's item"))
     await new_quote(user)
     [select] = user.find(marker="add-from-catalog").elements
-    assert select.options == {item.id: "Mow lawn\n$45.00 / hour"}
+    assert select.options == {item.id: "Mow lawn\n$45.00 / hr."}
     assert other.id not in select.options
 
 
@@ -2301,6 +2335,7 @@ async def test_picking_fills_the_blank_line_and_saves(user, conn):
     await user.should_not_see(marker="description-1")
     assert value(user.find(marker="description-2")) == "Mow lawn"
     assert value(user.find(marker="quantity-2")) == "1"
+    assert value(user.find(marker="unit-2")) == "hour"  # carried from the item
     assert value(user.find(marker="price-2")) == "$45.00"
     [taxed] = user.find(marker="taxed-2").elements
     assert taxed.value
@@ -2311,7 +2346,7 @@ async def test_picking_fills_the_blank_line_and_saves(user, conn):
     await user.should_see("Saved Q-")
     [summary] = list_quotes(conn, BUSINESS)
     [line] = load_quote(conn, summary.number).line_items
-    assert line == LineItem("Mow lawn", Decimal(1), 4500, taxed=True)
+    assert line == LineItem("Mow lawn", Decimal(1), 4500, unit="hour", taxed=True)
 
 
 async def test_picking_keeps_a_line_already_started(user, conn):
@@ -2461,10 +2496,9 @@ async def test_add_a_line_to_the_catalog(user, conn):
     await click_add_to_catalog(user, 1)
     assert value(user.find(marker="catalog-description")) == "Mulch"
     assert value(user.find(marker="catalog-price")) == "$6.50"
-    assert value(user.find(marker="catalog-unit")) == ""
+    assert value(user.find(marker="catalog-unit")) == "each"  # the line's unit
     [taxable] = user.find(marker="catalog-taxable").elements
     assert taxable.value
-    user.find(marker="catalog-unit").type("each")
     user.find(marker="save-catalog-item").click()
 
     await user.should_see("Added Mulch to the catalog")
@@ -2479,7 +2513,7 @@ async def test_add_a_line_to_the_catalog(user, conn):
     assert value(user.find(marker="quantity-1")) == "3"
     [select] = user.find(marker="add-from-catalog").elements
     assert select.visible
-    assert select.options == {item.id: "Mulch\n$6.50 / each"}
+    assert select.options == {item.id: "Mulch\n$6.50 / ea."}
     pick_from_catalog(user, item)
     await user.should_see(marker="description-2")
 

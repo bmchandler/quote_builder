@@ -129,6 +129,18 @@ def test_saved_quote_loads_the_same(conn):
     assert load_quote(conn, "Q-7KQ-M9XD") == saved
 
 
+def test_a_lines_unit_is_saved_and_loaded(conn):
+    quote = make_quote(
+        line_items=[
+            LineItem("Labor", Decimal("2.5"), 4500, unit="hour"),
+            LineItem("Filter", Decimal(1), 1200),  # unit defaults to each
+        ]
+    )
+    save_new_quote(conn, quote, numbers("Q-7KQ-M9XD"))
+    loaded = load_quote(conn, "Q-7KQ-M9XD")
+    assert [line.unit for line in loaded.line_items] == ["hour", "each"]
+
+
 def test_saving_leaves_the_given_quote_alone(conn):
     quote = lawn_quote()
     save_new_quote(conn, quote, numbers("Q-7KQ-M9XD"))

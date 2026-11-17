@@ -71,9 +71,16 @@ Future (not now):
   can check the figures add up and the Quoted display can be checked
   against the printout. No parentheses, to read like the rest of the
   line. The figure is the line's tax_cents (shown_line_totals).
-  A line's unit is shown to the customer (decided 2026-11-16, settling
-  the 2026-11-01 open question); it's wanted before release, see Later
-  polish.
+  A line's unit is shown to the customer (done 2026-11-17, settling
+  the 2026-11-01 open question): the quantity reads `2.5 hrs.` rather
+  than a bare `2.5`, on the Quoted display and the printout. The units
+  are a fixed pair, Hour and Each, stored as a short code and shown as
+  `hr.`/`hrs.` (one versus any other count) or `ea.` (either way); a
+  flat-rate line is one Each (`1 ea.`). A line is picked in the editor
+  (a Hour/Each select by Qty), filled from a catalog item when added
+  from the catalog, and a hand-typed line starts on Each. The catalog's
+  own Unit is the same fixed pair (was free text; "flat" dropped, as a
+  flat item is Each). See units.py.
 - A banner image at the top left instead of the business's name.
 - Archiving or purging old quotes (noted 2026-11-01).
   Brainstorm, nothing decided (noted 2026-11-02): an Archived area to
@@ -154,20 +161,22 @@ are worked out with `Decimal` and rounded to the cent where shown.
   percent (State 4.75%, County 1.5%, City 1%); its combined rate is
   their sum.
 - **Catalog item**: a reusable service or part, with a description,
-  default price, unit (hour, each, flat, and so on), and whether it's
-  taxable (often not, for a service). A description is needed; the
+  default price, unit (Hour or Each; decided 2026-11-16), and whether
+  it's taxable (often not, for a service). A description is needed; the
   rest is optional, a blank price being for work priced job by job.
-  Kept per business. The unit is for the business user choosing an
-  item, and stays in the catalog (decided 2026-11-01; see Future).
+  Kept per business. The unit fills a line's unit when the item is
+  picked, and stays in the catalog (decided 2026-11-01; see Future).
   A line copies from an item and keeps no link to it, so changing or
   deleting an item never touches a quote.
 - **Quote**: number, customer (optional), tax rate, date issued, valid-through
   date, status, notes, and line items.
-- **Line item**: description, quantity, unit price, discount, and
-  whether it's taxed (at the quote's rate; decided 2026-10-25).
-  Picking a catalog item fills these in; they can then be changed for
-  this quote only. A line can also be typed in by hand, with no catalog
-  item, taxed or not as the user ticks it.
+- **Line item**: description, quantity, unit (Hour or Each; how the
+  quantity reads to the customer, decided 2026-11-16), unit price,
+  discount, and whether it's taxed (at the quote's rate; decided
+  2026-10-25). Picking a catalog item fills these in; they can then be
+  changed for this quote only. A line can also be typed in by hand,
+  with no catalog item, starting on Each, taxed or not as the user
+  ticks it.
 
 Tax is per line item (decided 2026-10-17): parts usually carry sales
 tax, services often don't, and the app doesn't decide which; the user
@@ -411,11 +420,11 @@ Built (as of 2026-11-01), each with tests:
     right, the catalog of the business picked in the list, headed
     "Catalog: John Doe's Lawn Service". It's off for a new business
     until saved. Clicking a business, even that one, goes back to its
-    settings. One row per item ("Mow lawn · $45.00 / hour"), by
+    settings. One row per item ("Mow lawn · $45.00 / hr."), by
     description in any case, and "Add catalog item…". Adding or
-    clicking one opens a dialog: Description, Default price, Unit (its
-    example "hour, each, flat, etc."), and Taxable. It saves on its
-    own, as a tax rate's does; an item already saved has Delete.
+    clicking one opens a dialog: Description, Default price, Unit (a
+    Hour/Each select), and Taxable. It saves on its own, as a tax
+    rate's does; an item already saved has Delete.
   - Customers (decided 2026-11-02): in Settings' side panel, below
     Catalog, a Customers button opens, on the right, the customers of
     the business picked in the list, headed "Customers: John Doe's Lawn
@@ -434,17 +443,17 @@ Built (as of 2026-11-01), each with tests:
   - Add from catalog (decided 2026-11-01): once the business has an
     item, a field beside a draft's Add Line. Typing narrows the items
     by description, price, or unit, each shown as its description with
-    "$45.00 / hour" below. Picking one adds a line of it: its
-    description, quantity 1, its price (blank if it has none), and
-    Tax ticked if it's taxable; all can then be changed for this
+    "$45.00 / hr." below. Picking one adds a line of it: its
+    description, quantity 1, its unit, its price (blank if it has
+    none), and Tax ticked if it's taxable; all can then be changed for this
     quote only. It fills a last line that's still blank instead, as a
     new quote opens with one. The field then clears for the next pick.
   - Add to Catalog (decided 2026-11-01): once a line has a description,
     a circled plus shows at the right of its Description field, with
     "Add to Catalog" on mouse-over. Tab skips it, going on to Qty.
     Clicking it opens the catalog's dialog, filled in from the line
-    (a price that doesn't read starts blank; Unit starts blank, as a
-    line has none). Saving adds the item, ready to pick; the line
+    (a price that doesn't read starts blank; Unit takes the line's).
+    Saving adds the item, ready to pick; the line
     stays as it is and doesn't count as a change to the quote. The
     catalog allows duplicates, so nothing checks for one.
   - A long description (decided 2026-11-01): Description widens with
@@ -470,7 +479,7 @@ Built (as of 2026-11-01), each with tests:
     ("Match in notes"), or go.
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
-    draft opens in the form (description, quantity, unit price,
+    draft opens in the form (description, quantity, unit, unit price,
     discount, Tax, and notes, with totals updating as you type); Save
     saves it. Any other status opens read-only.
   - Customer on a quote (decided 2026-11-02, replacing a picker tied
@@ -732,14 +741,3 @@ longer fit by then, or the work before may have changed it.
   than straight to the print dialog (noted 2026-11-16, possible not
   planned): the page asks to print itself on load today; some users may
   prefer to see it first and print when ready.
-- Show a line's unit to the customer (decided 2026-11-16, wanted
-  before release): a quantity reads "3 hrs." rather than bare "3", on
-  the quote and the printout. A line has no unit today; it would take
-  one, filled from the catalog item when a line is added from the
-  catalog. Still to settle when built: the set of units. Common ones
-  are hours and each; the user leans toward short forms ("hrs.",
-  "ea.") and possibly limiting to just those two, rather than the
-  free-text catalog Unit field (whose example "hour, each, flat" is
-  where "flat", a flat-rate line, came from). Open: whether to keep
-  units free text, offer a fixed list, and how singular/plural reads
-  ("1 hr." vs "2 hrs.").

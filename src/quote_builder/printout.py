@@ -19,6 +19,7 @@ from quote_builder.money import format_discount, format_money
 from quote_builder.phones import format_phone_ext
 from quote_builder.quotes import Quote, version_name
 from quote_builder.totals import shown_line_totals, shown_quote_totals
+from quote_builder.units import format_quantity
 
 
 def _esc(text: str) -> str:
@@ -107,7 +108,8 @@ def _lines_rows(quote: Quote) -> str:
     rows = []
     for item in quote.line_items:
         line_totals = shown_line_totals(item, quote.tax_percent)
-        qty_price = f"{item.quantity} × {format_money(item.unit_price_cents)}"
+        qty = format_quantity(item.quantity, item.unit)
+        qty_price = f"{qty} × {format_money(item.unit_price_cents)}"
         if discount := format_discount(item.discount_cents, item.discount_percent):
             qty_price += f", less {discount}"
         if item.taxed:

@@ -925,7 +925,7 @@ def _line_items_of(
     placeholders = ", ".join("?" * len(quote_ids))
     rows = conn.execute(
         f"""
-        SELECT quote_id, description, quantity, unit_price_cents, taxed,
+        SELECT quote_id, description, quantity, unit, unit_price_cents, taxed,
                discount_cents, discount_percent, frozen_amount_cents,
                frozen_discount_cents, frozen_tax_cents
         FROM line_items
@@ -1046,10 +1046,10 @@ def _insert_line_items(
     conn.executemany(
         """
         INSERT INTO line_items
-            (quote_id, position, description, quantity, unit_price_cents,
+            (quote_id, position, description, quantity, unit, unit_price_cents,
              taxed, discount_cents, discount_percent,
              frozen_amount_cents, frozen_discount_cents, frozen_tax_cents)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1057,6 +1057,7 @@ def _insert_line_items(
                 position,
                 item.description,
                 str(item.quantity),
+                item.unit,
                 item.unit_price_cents,
                 item.taxed,
                 item.discount_cents,
@@ -1074,6 +1075,7 @@ def _line_item(row: sqlite3.Row) -> LineItem:
     return LineItem(
         description=row["description"],
         quantity=Decimal(row["quantity"]),
+        unit=row["unit"],
         unit_price_cents=row["unit_price_cents"],
         taxed=bool(row["taxed"]),
         discount_cents=row["discount_cents"],

@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quote_builder import units
 from quote_builder.business import PrintedBusiness, TaxRate
 from quote_builder.customers import Customer
 
@@ -58,6 +59,7 @@ class LineItem:
     description: str
     quantity: Decimal
     unit_price_cents: int
+    unit: str = units.DEFAULT  # how the quantity reads: see units.py
     taxed: bool = False  # at the quote's tax rate
     # An amount or a percent, never both.
     discount_cents: int | None = None

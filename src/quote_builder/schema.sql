@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     business_id INTEGER NOT NULL REFERENCES businesses (id),
     description TEXT    NOT NULL CHECK (description != ''),
     price_cents INTEGER CHECK (price_cents >= 0),  -- NULL: priced job by job
-    unit        TEXT    NOT NULL DEFAULT '',
+    -- How a line made from this item reads its quantity; see units.py.
+    unit        TEXT    NOT NULL DEFAULT 'each' CHECK (unit IN ('hour', 'each')),
     taxable     INTEGER NOT NULL DEFAULT 0 CHECK (taxable IN (0, 1))
 ) STRICT;
 
@@ -165,6 +166,8 @@ CREATE TABLE IF NOT EXISTS line_items (
     position         INTEGER NOT NULL,           -- order on the quote
     description      TEXT    NOT NULL,
     quantity         TEXT    NOT NULL,
+    -- How the quantity reads to the customer; see units.py.
+    unit             TEXT    NOT NULL DEFAULT 'each' CHECK (unit IN ('hour', 'each')),
     unit_price_cents INTEGER NOT NULL,
     discount_cents   INTEGER,
     discount_percent TEXT,
