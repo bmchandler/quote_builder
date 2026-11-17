@@ -82,6 +82,23 @@ def test_shows_each_lines_quantity_with_its_unit():
     assert "3 ea. × $12.00" in html
 
 
+def test_a_percent_discount_shows_its_dollars_in_parentheses():
+    # So a customer can check the discount without doing the math.
+    quote = a_quote(
+        line_items=[LineItem("Mow lawn", Decimal(2), 4500, discount_percent=Decimal(5))]
+    )
+    html = render_quote_html(quote, BIZ)
+    assert "less 5% ($4.50)" in html  # 5% of $90.00
+
+
+def test_a_flat_discount_stays_as_dollars():
+    quote = a_quote(
+        line_items=[LineItem("Mow lawn", Decimal(1), 4500, discount_cents=500)]
+    )
+    html = render_quote_html(quote, BIZ)
+    assert "less $5.00" in html
+
+
 def test_includes_terms_and_notes_when_present():
     html = render_quote_html(a_quote(), BIZ)
     assert "Payment due within 30 days." in html

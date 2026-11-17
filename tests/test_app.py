@@ -456,7 +456,7 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     # $67.50 net + $4.89 tax: the line shows its own tax beside "taxed"
     # and its tax-included total.
     await user.should_see(
-        "Trim hedges: 2.5 ea. × $30.00, less 10%, taxed $4.89 = $72.39"
+        "Trim hedges: 2.5 ea. × $30.00, less 10% ($7.50), taxed $4.89 = $72.39"
     )
     assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
     assert text(user.find(marker="foot-total")) == "$72.39"

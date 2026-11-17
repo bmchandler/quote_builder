@@ -35,6 +35,7 @@ from quote_builder.dates import (
 )
 from quote_builder.money import (
     format_discount,
+    format_discount_detail,
     format_money,
     format_percent,
     parse_discount,
@@ -2115,11 +2116,13 @@ def quote_view(
     for n, item in enumerate(quote.line_items, start=1):
         qty = format_quantity(item.quantity, item.unit)
         rest = f": {qty} × {format_money(item.unit_price_cents)}"
-        if discount := format_discount(item.discount_cents, item.discount_percent):
-            rest += f", less {discount}"
         # The figure includes the line's tax when taxed, as the editor's
         # does (tax is zero otherwise), so a line's share of the tax shows.
         line_totals = shown_line_totals(item, quote.tax_percent)
+        if discount := format_discount_detail(
+            item.discount_cents, item.discount_percent, line_totals.discount_cents
+        ):
+            rest += f", less {discount}"
         if item.taxed:
             # The line's own tax beside "taxed", for a by-hand double-check
             # against the printout (no parentheses, to read like the rest).

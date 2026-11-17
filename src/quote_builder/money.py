@@ -84,6 +84,20 @@ def format_discount(cents: int | None, percent: Decimal | None) -> str:
     return ""
 
 
+def format_discount_detail(
+    cents: int | None, percent: Decimal | None, amount_cents: int
+) -> str:
+    """The discount for a line shown to the customer: `5% ($1.36)` for a
+    percent, with the dollars in parentheses so the amount can be checked
+    without doing the math; `$5.00` for a flat amount (already dollars);
+    blank if none. `amount_cents` is the discount worked out to cents."""
+    if percent is not None:
+        return f"{percent}% ({format_money(amount_cents)})"
+    if cents is not None:
+        return format_money(cents)
+    return ""
+
+
 def _decimal(text: str, message: str) -> Decimal:
     try:
         value = Decimal(text)

@@ -67,10 +67,17 @@ Future (not now):
   line to write a name on by hand (noted 2026-11-01; done 2026-11-16).
   A taxed line shows its own tax beside "taxed" (done 2026-11-17), on
   the printout and the finalized (Quoted) display, not in the draft
-  editor: `2.5 × $30.00, less 10%, taxed $4.89 = $72.39`, so a customer
-  can check the figures add up and the Quoted display can be checked
-  against the printout. No parentheses, to read like the rest of the
-  line. The figure is the line's tax_cents (shown_line_totals).
+  editor: `2.5 × $30.00, less 10% ($7.50), taxed $4.89 = $72.39`, so a
+  customer can check the figures add up and the Quoted display can be
+  checked against the printout. No parentheses on the tax, to read like
+  the rest of the line. The figure is the line's tax_cents
+  (shown_line_totals).
+  A percent discount shows its worked-out dollars in parentheses
+  (done 2026-11-17): `less 10% ($7.50)`, so a customer needn't do the
+  percentage math to check it; the dollars are the line's discount_cents
+  (shown_line_totals). A flat-amount discount is already dollars
+  (`less $5.00`), so it's unchanged. Both on the Quoted display and the
+  printout, not the draft editor. See format_discount_detail (money.py).
   A line's unit is shown to the customer (done 2026-11-17, settling
   the 2026-11-01 open question): the quantity reads `2.5 hrs.` rather
   than a bare `2.5`, on the Quoted display and the printout. The units

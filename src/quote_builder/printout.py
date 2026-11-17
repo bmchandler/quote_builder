@@ -15,7 +15,7 @@ from html import escape
 
 from quote_builder.business import Business, PrintedBusiness
 from quote_builder.dates import format_numeric_date
-from quote_builder.money import format_discount, format_money
+from quote_builder.money import format_discount_detail, format_money
 from quote_builder.phones import format_phone_ext
 from quote_builder.quotes import Quote, version_name
 from quote_builder.totals import shown_line_totals, shown_quote_totals
@@ -110,7 +110,9 @@ def _lines_rows(quote: Quote) -> str:
         line_totals = shown_line_totals(item, quote.tax_percent)
         qty = format_quantity(item.quantity, item.unit)
         qty_price = f"{qty} × {format_money(item.unit_price_cents)}"
-        if discount := format_discount(item.discount_cents, item.discount_percent):
+        if discount := format_discount_detail(
+            item.discount_cents, item.discount_percent, line_totals.discount_cents
+        ):
             qty_price += f", less {discount}"
         if item.taxed:
             # The line's own tax beside "taxed", so a customer can check the

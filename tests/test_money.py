@@ -4,6 +4,7 @@ import pytest
 
 from quote_builder.money import (
     format_discount,
+    format_discount_detail,
     format_money,
     format_percent,
     parse_discount,
@@ -126,6 +127,18 @@ def test_parse_discount_refuses(text, message):
 )
 def test_format_discount(cents, percent, text):
     assert format_discount(cents, percent) == text
+
+
+@pytest.mark.parametrize(
+    ("cents", "percent", "amount_cents", "text"),
+    [
+        (None, None, 0, ""),
+        (550, None, 550, "$5.50"),  # a flat amount is already dollars
+        (None, Decimal(5), 136, "5% ($1.36)"),  # percent gains the dollars
+    ],
+)
+def test_format_discount_detail(cents, percent, amount_cents, text):
+    assert format_discount_detail(cents, percent, amount_cents) == text
 
 
 @pytest.mark.parametrize(
