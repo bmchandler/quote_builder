@@ -247,7 +247,7 @@ such copy (it prints, when it can, from the business as it is now).
 
 The quote's foot shows totals: line items before discounts (labelled
 "Line Items", for specificity so a customer doesn't take it for
-physical items only), discounts, tax, and the total. They update as the form is typed in; a line with no
+physical items only), discounts, taxes, and the total. They update as the form is typed in; a line with no
 price yet counts as nothing, and while any line doesn't read, its total
 and the foot show a dash.
 

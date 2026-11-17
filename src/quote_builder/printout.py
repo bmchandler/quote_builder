@@ -131,7 +131,7 @@ def _totals_rows(quote: Quote) -> str:
     rows = [
         ("Line Items", totals.items_cents),
         ("Discounts", -totals.discount_cents),
-        ("Tax", totals.tax_cents),
+        ("Taxes", totals.tax_cents),
     ]
     body = "".join(
         f"<tr><td>{label}</td><td class='amt'>{format_money(cents)}</td></tr>"

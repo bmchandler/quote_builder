@@ -2038,7 +2038,7 @@ def totals_foot(totals: QuoteTotals | None) -> None:
     rows = [
         ("Line Items", totals.items_cents if totals else 0, "items"),
         ("Discounts", -totals.discount_cents if totals else 0, "discounts"),
-        ("Tax", totals.tax_cents if totals else 0, "tax"),
+        ("Taxes", totals.tax_cents if totals else 0, "tax"),
         ("Total", totals.total_cents if totals else 0, "total"),
     ]
     with ui.grid(columns="auto 7rem").classes("gap-x-4 gap-y-0 self-end pr-12"):
