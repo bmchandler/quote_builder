@@ -24,6 +24,34 @@ class Business:
 
 
 @dataclass(frozen=True)
+class PrintedBusiness:
+    """A business's details frozen onto a quote when it's marked Quoted,
+    so the quote's printout stays as it was even if the business later
+    changes (as its totals and tax rate freeze; see REQUIREMENTS.md)."""
+
+    name: str = ""
+    address: str = ""
+    phone: str = ""
+    ext: str = ""
+    email: str = ""
+    website: str = ""
+    terms: str = ""
+
+    @classmethod
+    def of(cls, business: Business) -> "PrintedBusiness":
+        """A snapshot of `business`'s details for the printout."""
+        return cls(
+            name=business.name,
+            address=business.address,
+            phone=business.phone,
+            ext=business.ext,
+            email=business.email,
+            website=business.website,
+            terms=business.terms,
+        )
+
+
+@dataclass(frozen=True)
 class TaxPart:
     """One part of a tax rate: `State 4.75%`."""
 

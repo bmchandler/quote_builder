@@ -950,6 +950,29 @@ async def test_print_opens_the_quote_in_the_browser(conn):
     assert "Mow lawn" in html
 
 
+async def test_print_uses_the_frozen_business_details(conn):
+    from pathlib import Path
+    from urllib.parse import unquote, urlparse
+
+    save_business(conn, replace(current_business(conn), name="Old Name Co"))
+    saved = quoted(conn)  # freezes "Old Name Co" onto the quote
+    # Rename the business after it was quoted.
+    save_business(conn, replace(current_business(conn), name="New Name Co"))
+
+    opened = []
+    root = quote_page(conn, today=lambda: TODAY, open_url=opened.append)
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        user.find(marker=f"quote-{saved.number}").click()
+        await eventually(lambda: (heading(user) or "").startswith(saved.number))
+        user.find(marker="print").click()
+        await user.should_see("Opened the printout in your browser")
+
+    html = Path(unquote(urlparse(opened[0]).path)).read_text(encoding="utf-8")
+    assert "Old Name Co" in html  # the name as it was when quoted
+    assert "New Name Co" not in html
+
+
 async def test_copy_a_quoted_quote_starts_a_new_quote(user, conn):
     saved = quoted(conn)
     await open_saved(user, saved)

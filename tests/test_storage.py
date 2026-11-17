@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.business import Business, PrintedBusiness, TaxPart, TaxRate
 from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.quotes import (
@@ -638,6 +638,47 @@ def test_add_a_business(conn):
     added = add_business(conn, Business(name="Acme", valid_days=14))
     assert added.id is not None
     assert list_businesses(conn)[1] == added  # after the unnamed one
+
+
+def test_mark_quoted_freezes_the_business_details(conn):
+    detailed = replace(
+        current_business(conn),
+        name="John Doe's Lawn Service",
+        address="12 Oak St",
+        phone="5551234567",
+        ext="12",
+        email="john@example.com",
+        website="johnslawn.example.com",
+        terms="Net 30.",
+    )
+    save_business(conn, detailed)
+    quoted = mark_quoted(
+        conn,
+        make_quote(line_items=[LineItem("Mow", Decimal(1), 4500)]),
+        date(2026, 9, 1),
+        date(2026, 12, 1),
+        numbers("Q-7KQ-M9XD"),
+    )
+    # Change the business afterward: the quote keeps the snapshot.
+    save_business(conn, replace(detailed, name="New Name", terms="Net 15."))
+
+    frozen = load_quote(conn, quoted.number).printed_business
+    assert frozen == PrintedBusiness(
+        name="John Doe's Lawn Service",
+        address="12 Oak St",
+        phone="5551234567",
+        ext="12",
+        email="john@example.com",
+        website="johnslawn.example.com",
+        terms="Net 30.",
+    )
+
+
+def test_a_draft_has_no_frozen_business(conn):
+    saved = save_new_quote(
+        conn, make_quote(line_items=[LineItem("Mow", Decimal(1), 4500)]), numbers("Q-1")
+    )
+    assert load_quote(conn, saved.number).printed_business is None
 
 
 def test_business_details_round_trip(conn):

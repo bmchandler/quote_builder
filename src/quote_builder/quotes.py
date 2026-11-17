@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from quote_builder.business import TaxRate
+from quote_builder.business import PrintedBusiness, TaxRate
 from quote_builder.customers import Customer
 
 
@@ -97,6 +97,9 @@ class Quote:
     # Its customer, if any: its own copy of the details, as typed or
     # filled in from the business's customers (never with their id).
     customer: Customer | None = None
+    # The business's details frozen onto the quote when quoted, for its
+    # printout; None on a draft (it uses the business as it is now).
+    printed_business: PrintedBusiness | None = None
 
 
 @dataclass

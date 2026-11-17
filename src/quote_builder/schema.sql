@@ -117,6 +117,17 @@ CREATE TABLE IF NOT EXISTS quotes (
     customer_phone   TEXT NOT NULL DEFAULT '',   -- ten digits (1234567890)
     customer_ext     TEXT NOT NULL DEFAULT '',   -- a phone extension, digits only
     customer_address TEXT NOT NULL DEFAULT '',
+    -- The business's details frozen onto the quote when quoted, for its
+    -- printout (NULL on a draft, which prints from the business as it is
+    -- now). Written as one snapshot, so the single CHECK below on the
+    -- name guards the whole group.
+    frozen_business_name    TEXT,
+    frozen_business_address TEXT,
+    frozen_business_phone   TEXT,
+    frozen_business_ext     TEXT,
+    frozen_business_email   TEXT,
+    frozen_business_website TEXT,
+    frozen_business_terms   TEXT,
     UNIQUE (number, revision),
     -- Only a draft goes without dates and frozen totals.
     CHECK (status = 'Draft' OR (issued_on IS NOT NULL
@@ -126,7 +137,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     CHECK ((status = 'Draft') = (frozen_tax_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_total_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_tax_name IS NULL)),
-    CHECK ((status = 'Draft') = (frozen_tax_percent IS NULL))
+    CHECK ((status = 'Draft') = (frozen_tax_percent IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_business_name IS NULL))
 ) STRICT;
 
 -- At most one draft per quote number: a revision is worked on one at

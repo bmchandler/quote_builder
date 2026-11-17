@@ -219,7 +219,11 @@ of one: a second copy drifts, and can mask a problem in this file.
 - Totals are computed from lines whenever shown, never stored, until
   `mark_quoted` freezes them (`frozen` on `Quote` and `LineItem`;
   REQUIREMENTS.md, Data). Show figures with `shown_line_totals` /
-  `shown_quote_totals`, which prefer the frozen ones.
+  `shown_quote_totals`, which prefer the frozen ones. `mark_quoted`
+  also freezes the business's details for the printout
+  (`printed_business` on `Quote`, a `PrintedBusiness`; `None` on a
+  draft), stored in the quote's `frozen_business_*` columns and guarded
+  by one CHECK on the name (the snapshot is written as a unit).
 - app.py: `quote_page(conn, today=date.today)` returns the root
   function for `ui.run(root)`; tests pass a temp database and a fixed
   `today`. In `root`, handlers are defined before the layout that

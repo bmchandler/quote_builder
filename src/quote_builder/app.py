@@ -287,7 +287,10 @@ def quote_page(
         def print_quote(quote: Quote) -> None:
             """Write the quote's printout to a temp file and open it in the
             browser, where Print offers Save as PDF."""
-            html_text = render_quote_html(quote, current_business(conn))
+            # A finalized quote prints its frozen details; fall back to
+            # the business as it is now (a draft has no frozen copy).
+            business = quote.printed_business or current_business(conn)
+            html_text = render_quote_html(quote, business)
             folder = Path(tempfile.gettempdir()) / "quote_builder"
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / f"{name_of(quote)}.html"

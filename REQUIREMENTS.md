@@ -215,6 +215,13 @@ given. A revision starts as a draft, so it's worked out with the rules
 of the day until it's quoted and frozen in turn. Old rules aren't kept
 around to rework old quotes.
 
+The tax rate's name and percent freeze onto a quote the same way when
+it's quoted, and so do the business's details for the printout
+(decided 2026-11-16): the name, address, phone and extension, email,
+website, and terms as they were, kept on the quote so its printout
+stays as it was even if the business later changes. A draft keeps no
+such copy (it prints, when it can, from the business as it is now).
+
 The quote's foot shows totals: items before discounts, discounts, tax,
 and the total. They update as the form is typed in; a line with no
 price yet counts as nothing, and while any line doesn't read, its total
@@ -626,11 +633,10 @@ Built (as of 2026-11-01), each with tests:
     totals foot, then Notes and, below them, Terms when present (Terms
     are the bottom-most part of the page; decided 2026-11-16). The
     page's own "Print / Save as PDF" button is in the app's primary
-    blue, so the printout matches the window. It renders from the
-    business's details as they are now; freezing a copy onto the quote
-    at Mark Quoted is next (see Status and plan), so an issued quote's
-    printout doesn't shift if those details later change. On a draft
-    there's no Print yet (a draft is a work in progress, not something
+    blue, so the printout matches the window. It reads the business's
+    details frozen onto the quote at Mark Quoted (see Data), so an
+    issued quote's printout doesn't shift if those details later change.
+    On a draft there's no Print yet (a draft is a work in progress, not something
     to send); a quote with no customer has no "Prepared for" line, with
     the handwrite space still to come. The page is self-contained (its
     styles inline) and written to a temp file, so it opens from a file,
@@ -686,12 +692,13 @@ screen while the route is something to try end to end):
    Terms block, entered in its Settings and stored per business; the
    printout carries them. See the Settings screen item.
 2. The print route: done (2026-11-16), layout A, the letterhead (see
-   the Printout screen item). Renders from live business details for
-   now; freezing (next) will feed it the quote's own copies.
+   the Printout screen item).
 3. Freeze a copy of the business's details and terms onto the quote
-   when it's marked Quoted, as totals and the tax rate freeze now (see
-   Data), so a quoted quote's printout doesn't shift if the business's
-   details later change.
+   when it's marked Quoted: done (2026-11-16), as totals and the tax
+   rate freeze (see Data). The printout now reads the frozen copy, so a
+   quoted quote's printout doesn't shift if the business's details
+   later change; a draft (which has none) still prints from the
+   business as it is now.
 4. From and To, with the pilot rule (a person's name, never the
    pilot's), and the handwrite space when there's no customer.
 

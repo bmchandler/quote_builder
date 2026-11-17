@@ -12,7 +12,7 @@ from decimal import Decimal
 from importlib.resources import files
 from pathlib import Path
 
-from quote_builder.business import Business, TaxPart, TaxRate
+from quote_builder.business import Business, PrintedBusiness, TaxPart, TaxRate
 from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.phones import digits as phone_search_digits
@@ -112,6 +112,15 @@ def list_businesses(conn: sqlite3.Connection) -> list[Business]:
         """
     ).fetchall()
     return [_business(row) for row in rows]
+
+
+def get_business(conn: sqlite3.Connection, business_id: int) -> Business:
+    """The business with this id."""
+    row = conn.execute(
+        f"SELECT {_BUSINESS_COLUMNS} FROM businesses WHERE id = ?",
+        (business_id,),
+    ).fetchone()
+    return _business(row)
 
 
 def pick_business(conn: sqlite3.Connection, business_id: int) -> None:
@@ -481,6 +490,11 @@ def mark_quoted(
             taxed, status=Status.QUOTED, issued_on=issued_on, valid_until=valid_until
         )
     )
+    # Freeze the business's details too, so the printout stays as it was.
+    quoted = replace(
+        quoted,
+        printed_business=PrintedBusiness.of(get_business(conn, quote.business_id)),
+    )
     if quoted.number is None:
         return save_new_quote(conn, quoted, draw_number, now)
     with conn:
@@ -534,7 +548,14 @@ def _overwrite_draft(
             customer_email = :customer_email,
             customer_phone = :customer_phone,
             customer_ext = :customer_ext,
-            customer_address = :customer_address
+            customer_address = :customer_address,
+            frozen_business_name = :fb_name,
+            frozen_business_address = :fb_address,
+            frozen_business_phone = :fb_phone,
+            frozen_business_ext = :fb_ext,
+            frozen_business_email = :fb_email,
+            frozen_business_website = :fb_website,
+            frozen_business_terms = :fb_terms
         WHERE number = :number AND revision = :revision AND status = 'Draft'
         RETURNING id
         """,
@@ -633,14 +654,18 @@ _QUOTE_COLUMNS = """
     business_id, number, revision, status, issued_on, valid_until, notes,
     tax_rate_id, updated_at, frozen_items_cents, frozen_discount_cents,
     frozen_tax_cents, frozen_total_cents, frozen_tax_name, frozen_tax_percent,
-    customer_name, customer_email, customer_phone, customer_ext, customer_address
+    customer_name, customer_email, customer_phone, customer_ext, customer_address,
+    frozen_business_name, frozen_business_address, frozen_business_phone,
+    frozen_business_ext, frozen_business_email, frozen_business_website,
+    frozen_business_terms
 """
 _QUOTE_VALUES = """
     :business_id, :number, :revision, :status, :issued_on, :valid_until,
     :notes, :tax_rate_id, :updated_at, :items_cents, :discount_cents,
     :tax_cents, :total_cents, :tax_name, :tax_percent,
     :customer_name, :customer_email, :customer_phone, :customer_ext,
-    :customer_address
+    :customer_address,
+    :fb_name, :fb_address, :fb_phone, :fb_ext, :fb_email, :fb_website, :fb_terms
 """
 
 
@@ -648,6 +673,7 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
     """The quote's columns, by name, for INSERT and UPDATE."""
     frozen = quote.frozen
     customer = quote.customer
+    printed = quote.printed_business
     return {
         "business_id": quote.business_id,
         "number": number,
@@ -671,6 +697,14 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         "customer_phone": customer.phone if customer else "",
         "customer_ext": customer.ext if customer else "",
         "customer_address": customer.address if customer else "",
+        # The business's details frozen at Mark Quoted; NULL on a draft.
+        "fb_name": printed.name if printed else None,
+        "fb_address": printed.address if printed else None,
+        "fb_phone": printed.phone if printed else None,
+        "fb_ext": printed.ext if printed else None,
+        "fb_email": printed.email if printed else None,
+        "fb_website": printed.website if printed else None,
+        "fb_terms": printed.terms if printed else None,
     }
 
 
@@ -917,7 +951,11 @@ def load_quote(
                valid_until, notes, tax_rate_id, frozen_items_cents,
                frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
                frozen_tax_name, frozen_tax_percent, customer_name,
-               customer_email, customer_phone, customer_ext, customer_address
+               customer_email, customer_phone, customer_ext, customer_address,
+               frozen_business_name, frozen_business_address,
+               frozen_business_phone, frozen_business_ext,
+               frozen_business_email, frozen_business_website,
+               frozen_business_terms
         FROM quotes
         WHERE number = :number
           AND (:revision IS NULL OR revision = :revision)
@@ -958,6 +996,19 @@ def load_quote(
         ),
         extensions=_extensions_of(conn, row["id"]),
         customer=None if customer.is_blank else customer,
+        printed_business=(
+            None
+            if row["frozen_business_name"] is None
+            else PrintedBusiness(
+                name=row["frozen_business_name"],
+                address=row["frozen_business_address"],
+                phone=row["frozen_business_phone"],
+                ext=row["frozen_business_ext"],
+                email=row["frozen_business_email"],
+                website=row["frozen_business_website"],
+                terms=row["frozen_business_terms"],
+            )
+        ),
     )
     if row["frozen_tax_percent"] is None:
         # A draft: the rate as it is now.

@@ -13,7 +13,12 @@ the top, above the quote.
 
 from html import escape
 
-from quote_builder.business import Business
+from quote_builder.business import Business, PrintedBusiness
+from quote_builder.dates import format_numeric_date
+from quote_builder.money import format_discount, format_money
+from quote_builder.phones import format_phone_ext
+from quote_builder.quotes import Quote, version_name
+from quote_builder.totals import shown_line_totals, shown_quote_totals
 
 
 def _esc(text: str) -> str:
@@ -21,12 +26,6 @@ def _esc(text: str) -> str:
     as they are (nothing here goes into an attribute, so a name like
     "John Doe's" stays readable)."""
     return escape(text, quote=False)
-
-from quote_builder.dates import format_numeric_date
-from quote_builder.money import format_discount, format_money
-from quote_builder.phones import format_phone_ext
-from quote_builder.quotes import Quote, version_name
-from quote_builder.totals import shown_line_totals, shown_quote_totals
 
 # Inline so the page stands alone (opened from a file, not the server).
 _STYLE = """
@@ -73,7 +72,7 @@ def _one_line_address(address: str) -> str:
     return ", ".join(line.strip() for line in address.splitlines() if line.strip())
 
 
-def _business_details(business: Business) -> str:
+def _business_details(business: Business | PrintedBusiness) -> str:
     """The business's contact details on one line, present parts only."""
     parts = [
         _one_line_address(business.address),
@@ -134,8 +133,12 @@ def _totals_rows(quote: Quote) -> str:
     return body
 
 
-def render_quote_html(quote: Quote, business: Business) -> str:
-    """A standalone HTML page for `quote`, in the letterhead layout."""
+def render_quote_html(quote: Quote, business: Business | PrintedBusiness) -> str:
+    """A standalone HTML page for `quote`, in the letterhead layout.
+
+    `business` is the frozen snapshot on a finalized quote, or the live
+    business for a draft; both carry the same detail fields.
+    """
     title = version_name(quote.number, quote.revision) if quote.number else "Quote"
     name = _esc(business.name) if business.name else "Quote"
     details = _business_details(business)
