@@ -65,9 +65,9 @@ Future (not now):
   as a trade-name header, and a pilot has no separate person's name.
   A quote without a customer gets a "Prepared for:" label and a ruled
   line to write a name on by hand (noted 2026-11-01; done 2026-11-16).
-  Whether and how a customer sees a line's unit ("3 hours") is to be
-  settled with it (noted 2026-11-01): a line has no unit today, and
-  a field for one is tight in a line's row at the window's width.
+  A line's unit is shown to the customer (decided 2026-11-16, settling
+  the 2026-11-01 open question); it's wanted before release, see Later
+  polish.
 - A banner image at the top left instead of the business's name.
 - Archiving or purging old quotes (noted 2026-11-01).
   Brainstorm, nothing decided (noted 2026-11-02): an Archived area to
@@ -726,3 +726,21 @@ longer fit by then, or the work before may have changed it.
   than straight to the print dialog (noted 2026-11-16, possible not
   planned): the page asks to print itself on load today; some users may
   prefer to see it first and print when ready.
+- Show a taxed line's own tax amount, on finalized quotes and the
+  printout (wanted before release, 2026-11-16): next to "taxed", the
+  line's tax in parentheses, so amounts are easy to double-check by
+  hand — a $15 line at 7.25% reads ", taxed ($1.09)". The figure is the
+  line's tax_cents (shown_line_totals), already computed for the line's
+  total. To settle when built: whether the draft editor's per-line
+  figure shows it too, or only the read-only quote and the printout.
+- Show a line's unit to the customer (decided 2026-11-16, wanted
+  before release): a quantity reads "3 hrs." rather than bare "3", on
+  the quote and the printout. A line has no unit today; it would take
+  one, filled from the catalog item when a line is added from the
+  catalog. Still to settle when built: the set of units. Common ones
+  are hours and each; the user leans toward short forms ("hrs.",
+  "ea.") and possibly limiting to just those two, rather than the
+  free-text catalog Unit field (whose example "hour, each, flat" is
+  where "flat", a flat-rate line, came from). Open: whether to keep
+  units free text, offer a fixed list, and how singular/plural reads
+  ("1 hr." vs "2 hrs.").
