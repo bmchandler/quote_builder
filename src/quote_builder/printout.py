@@ -129,7 +129,7 @@ def _lines_rows(quote: Quote) -> str:
 def _totals_rows(quote: Quote) -> str:
     totals = shown_quote_totals(quote)
     rows = [
-        ("Items", totals.items_cents),
+        ("Line Items", totals.items_cents),
         ("Discounts", -totals.discount_cents),
         ("Tax", totals.tax_cents),
     ]

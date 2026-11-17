@@ -460,6 +460,7 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     )
     assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
     assert text(user.find(marker="foot-total")) == "$72.39"
+    await user.should_see("Line Items")  # foot label, not bare "Items"
 
 
 async def test_read_only_quote_shows_each_lines_unit(user, conn):

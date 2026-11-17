@@ -2036,7 +2036,7 @@ def totals_foot(totals: QuoteTotals | None) -> None:
         return "—" if totals is None else format_money(cents)
 
     rows = [
-        ("Items", totals.items_cents if totals else 0, "items"),
+        ("Line Items", totals.items_cents if totals else 0, "items"),
         ("Discounts", -totals.discount_cents if totals else 0, "discounts"),
         ("Tax", totals.tax_cents if totals else 0, "tax"),
         ("Total", totals.total_cents if totals else 0, "total"),
