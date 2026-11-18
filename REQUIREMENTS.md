@@ -789,6 +789,55 @@ Terms are a single free-text block (decided 2026-11-16), not structured
 fields, as the cuts had weighed; structured fields can come later if it
 proves too loose.
 
+## Path to first release
+
+The roadmap to a first release (an MVP / 1.0), captured 2026-11-18. The
+aim is to have something releasable to show at a meetup (the next is
+2026-11-19 evening; more follow, so the date isn't hard-committed), and
+— just as important — to **go through a post-release change for real**,
+to learn what updating the app and an existing user's database will be
+like once people already have data. The git and release mechanics follow
+what worked on the **pota_logger** project (also a `uv` project); part
+of this work is comparing the two and porting pota_logger's setup and
+its automation here, not reinventing it.
+
+Today this repo still commits on `main` (see CLAUDE.md, "How we work");
+the dev/release split below is what changes that.
+
+Ordered, though some can overlap:
+
+1. **Write the docs for a first release.** `README.md` (currently empty)
+   as the MVP's front door — what the app is, install via `uv`, basic
+   use — plus any other Markdown that a first release needs. Keep it
+   terse and user-facing (developer material stays in the developer
+   docs). Link [CALCULATIONS.md](CALCULATIONS.md) from it (this folds in
+   the Later-polish item below).
+2. **Last double-checks and polish** before preparing the release: a
+   pass over wording, the full test suite, and anything in Later polish
+   worth pulling in first.
+3. **Set up the dev/release git methodology from pota_logger.** A
+   separate `dev` branch for development; `main` becomes purely a
+   release branch (only ever the newest release's tag, moved by the
+   release step). Port pota_logger's automated tooling that aids this
+   workflow and guards against the usual mistakes.
+4. **Compare the two projects** and confirm the development and release
+   workflow is nailed down correctly here — that this project's setup
+   matches pota_logger's where it should.
+5. **Wire up GitHub** similar to pota_logger (the public mirror; vet
+   that what's going out is safe to publish first, per CLAUDE.md).
+6. **Do the initial release** and check that install via `uv` works as
+   it did on pota_logger.
+7. **Make a small development change** on `dev` and run the full release
+   procedure (changelog, the merge, the tag, etc.) to exercise it.
+8. **Check that a release update works** as expected for someone already
+   on the previous version.
+9. **Post-release DB change.** Discuss, and possibly do, a small schema
+   change to see how it plays out when users already have data in their
+   databases — i.e. a migration / update script run on version update.
+   This is the main thing to learn from the exercise; until now the rule
+   has been "delete the DB" (no migrations before release, see CLAUDE.md
+   and [Storage](#storage)), and this is where that rule retires.
+
 ## Later polish
 
 Polish to weigh once the main features are done (started
@@ -799,7 +848,6 @@ longer fit by then, or the work before may have changed it.
   than straight to the print dialog (noted 2026-11-16, possible not
   planned): the page asks to print itself on load today; some users may
   prefer to see it first and print when ready.
-- Link [CALCULATIONS.md](CALCULATIONS.md) from the README before
-  release (noted 2026-11-17): the README is still empty, so for now the
-  calculations are referenced from here and from the code; the user
-  wants the tax reasoning reachable from the README once it's written.
+
+(The earlier "link CALCULATIONS.md from the README" item now lives in
+[Path to first release](#path-to-first-release), step 1.)
