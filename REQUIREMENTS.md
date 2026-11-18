@@ -230,7 +230,13 @@ with a Quote Discount no line carries its own discount, and tax is
 worked out once for the quote as a whole; the app refuses, on Save, to
 use both. The coupon case is still served: use a Quote Discount on that
 quote. With a Quote Discount the lines read plainly (`qty × price =
-amount`), the discount and tax showing once each in the foot.
+amount`), the discount and tax showing once each in the foot. So the
+tax stays checkable without per-line figures, the foot then also shows
+(decided 2026-11-18) the "Discounted Subtotal" (Line Items − Quote
+Discount) split into "Post Discount Untaxed" and "Post Discount
+Taxable", the taxable part sitting just above Taxes as the figure the
+rate is applied to. These three always show in Quote Discount mode, at
+$0.00 where a part is empty, rather than being hidden.
 
 In the form, a line's Discount field and the Quote Discount field each
 take either style: `10%` is a percent, anything else an amount (`5`,
@@ -274,9 +280,12 @@ The quote's foot shows totals: line items before discounts (labelled
 physical items only), then the discount in play — "Discounts" for line
 discounts, "Quote Discount" for a whole-quote one, and neither when
 there's none — then taxes and the total. A discount row shows only for
-the mode in use, so the foot always reads cleanly. They update as the
-form is typed in; a line with no price yet counts as nothing, and while
-any line doesn't read, its total and the foot show a dash.
+the mode in use, so the foot always reads cleanly. In Quote Discount
+mode the foot also carries the "Discounted Subtotal", "Post Discount
+Untaxed", and "Post Discount Taxable" breakdown (above), so the tax is
+checkable by hand. They update as the form is typed in; a line with no
+price yet counts as nothing, and while any line doesn't read, its total
+and the foot show a dash.
 
 Quote numbers (decided 2026-10-17) are `Q-` and a random code shaped
 like a phone number, three characters then four: `Q-7KQ-M9XD`. The

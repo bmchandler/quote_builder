@@ -15,7 +15,13 @@ from collections.abc import Iterable
 from dataclasses import replace
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
-from quote_builder.quotes import LineItem, LineTotals, Quote, QuoteTotals
+from quote_builder.quotes import (
+    LineItem,
+    LineTotals,
+    Quote,
+    QuoteDiscountSplit,
+    QuoteTotals,
+)
 
 # A quote with both a line discount and a whole-quote discount set; the
 # app blocks saving one, and totals refuse to work one out.
@@ -81,14 +87,7 @@ def quote_totals(
     taxable = sum(
         line.amount_cents for line, item in zip(lines, items) if item.taxed
     )
-    # The discount's share of the taxable part, rounded up so the odd
-    # penny lands on the taxable side (a touch less tax, the customer's
-    # favor). Never more than the taxable part itself.
-    if items_cents:
-        taxable_share = _ceil_cents(Decimal(discount) * taxable / items_cents)
-    else:
-        taxable_share = 0
-    taxable_share = min(taxable_share, taxable)
+    taxable_share = _taxable_share(discount, taxable, items_cents)
     tax = _whole_cents((taxable - taxable_share) * tax_percent / 100)
     return QuoteTotals(
         items_cents=items_cents,
@@ -140,6 +139,38 @@ def shown_quote_totals(quote: Quote) -> QuoteTotals:
         quote.quote_discount_cents,
         quote.quote_discount_percent,
     )
+
+
+def quote_discount_split(
+    items: Iterable[LineItem], totals: QuoteTotals
+) -> QuoteDiscountSplit:
+    """The quote-discount breakdown shown in the foot: the subtotal after
+    the quote discount, split into its non-taxable and taxable parts (tax
+    falls on the taxable part). Figured the same way as quote_totals, from
+    the lines' plain amounts and the discount in `totals`, so it always
+    agrees with the foot's Taxes. See CALCULATIONS.md.
+    """
+    taxable = sum(line_amount_cents(item) for item in items if item.taxed)
+    taxable_share = _taxable_share(
+        totals.quote_discount_cents, taxable, totals.items_cents
+    )
+    taxable_after = taxable - taxable_share
+    discounted_subtotal = totals.items_cents - totals.quote_discount_cents
+    return QuoteDiscountSplit(
+        discounted_subtotal_cents=discounted_subtotal,
+        untaxed_after_discount_cents=discounted_subtotal - taxable_after,
+        taxable_after_discount_cents=taxable_after,
+    )
+
+
+def _taxable_share(discount: int, taxable: int, items_cents: int) -> int:
+    """The discount's share of the taxable part, rounded up so the odd
+    penny lands on the taxable side (a touch less tax, the customer's
+    favor). Never more than the taxable part itself."""
+    if not items_cents:
+        return 0
+    share = _ceil_cents(Decimal(discount) * taxable / items_cents)
+    return min(share, taxable)
 
 
 def _quote_discount_cents(

@@ -54,6 +54,7 @@ from quote_builder.quotes import (
     REVISABLE,
     LineItem,
     Quote,
+    QuoteDiscountSplit,
     QuoteSummary,
     QuoteTotals,
     Status,
@@ -108,6 +109,7 @@ from quote_builder.totals import (
     BOTH_MODES,
     line_amount_cents,
     line_totals,
+    quote_discount_split,
     quote_totals,
     shown_line_totals,
     shown_quote_totals,
@@ -1810,14 +1812,10 @@ def quote_editor(
             totals_foot(None)
             return
         try:
-            totals_foot(
-                quote_totals(
-                    (item for item in items if item is not None),
-                    percent,
-                    qd_cents,
-                    qd_percent,
-                )
-            )
+            present = [item for item in items if item is not None]
+            totals = quote_totals(present, percent, qd_cents, qd_percent)
+            split = quote_discount_split(present, totals) if has_qd else None
+            totals_foot(totals, split)
         except ValueError:
             # Both discount modes at once, or a quote discount over the
             # subtotal: the foot can't be worked out. Save says what's wrong.
@@ -2097,8 +2095,12 @@ def date_input(
     return field
 
 
-def totals_foot(totals: QuoteTotals | None) -> None:
-    """The quote's totals, or dashes while a line doesn't read."""
+def totals_foot(
+    totals: QuoteTotals | None, split: QuoteDiscountSplit | None = None
+) -> None:
+    """The quote's totals, or dashes while a line doesn't read. In
+    quote-discount mode `split` adds the discounted subtotal and its
+    taxable/non-taxable parts, so the customer can check the tax by hand."""
 
     def amount(cents: int) -> str:
         return "—" if totals is None else format_money(cents)
@@ -2110,6 +2112,17 @@ def totals_foot(totals: QuoteTotals | None) -> None:
         rows.append(("Discounts", -totals.discount_cents, "discounts"))
     if totals and totals.quote_discount_cents:
         rows.append(("Quote Discount", -totals.quote_discount_cents, "quote-discount"))
+    # The quote-discount breakdown, so the tax is checkable: Post Discount
+    # Taxable sits just above Taxes (× the rate = Taxes).
+    if split is not None:
+        rows += [
+            ("Discounted Subtotal", split.discounted_subtotal_cents,
+             "discounted-subtotal"),
+            ("Post Discount Untaxed", split.untaxed_after_discount_cents,
+             "post-discount-untaxed"),
+            ("Post Discount Taxable", split.taxable_after_discount_cents,
+             "post-discount-taxable"),
+        ]
     rows += [
         ("Taxes", totals.tax_cents if totals else 0, "tax"),
         ("Total", totals.total_cents if totals else 0, "total"),
@@ -2207,7 +2220,13 @@ def quote_view(
             # so a line's share of the tax shows.
             rest += f" = {format_money(line_totals.total_cents)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
-    totals_foot(shown_quote_totals(quote))
+    totals = shown_quote_totals(quote)
+    split = (
+        quote_discount_split(quote.line_items, totals)
+        if quote.has_quote_discount
+        else None
+    )
+    totals_foot(totals, split)
     if quote.notes:
         searched_text(quote.notes, term).mark("view-notes")
 

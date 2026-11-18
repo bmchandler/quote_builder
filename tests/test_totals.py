@@ -6,6 +6,7 @@ from quote_builder.quotes import LineItem, LineTotals, Quote, QuoteTotals
 from quote_builder.totals import (
     freeze,
     line_totals,
+    quote_discount_split,
     quote_totals,
     shown_line_totals,
     shown_quote_totals,
@@ -141,6 +142,31 @@ def test_flat_quote_discount_splits_before_tax():
         tax_cents=1341,  # 7.25% × ($201.00 − $16.02 taxable share)
         total_cents=24441,  # ($251.00 − $20.00) + $13.41
     )
+
+
+def test_quote_discount_split_breaks_the_subtotal_into_its_parts():
+    # The foot's breakdown: discounted subtotal $231.00, split into the
+    # taxable part ($184.98, what tax is figured on) and the rest ($46.02).
+    totals = quote_totals(QUOTE_DISCOUNT_LINES, RATE, quote_discount_cents=2000)
+    split = quote_discount_split(QUOTE_DISCOUNT_LINES, totals)
+    assert split.discounted_subtotal_cents == 23100  # $251.00 − $20.00
+    assert split.taxable_after_discount_cents == 18498  # $201.00 − $16.02
+    assert split.untaxed_after_discount_cents == 4602  # $50.00 − $3.98
+    # The two parts add back to the discounted subtotal, and the taxable
+    # part × the rate is the foot's tax.
+    assert (
+        split.taxable_after_discount_cents + split.untaxed_after_discount_cents
+        == split.discounted_subtotal_cents
+    )
+    assert round(split.taxable_after_discount_cents * 7.25 / 100) == totals.tax_cents
+
+
+def test_quote_discount_split_with_no_taxable_lines_is_all_untaxed():
+    lines = [line("1", 5000), line("1", 3000)]  # both non-taxable
+    totals = quote_totals(lines, UNTAXED, quote_discount_cents=1000)
+    split = quote_discount_split(lines, totals)
+    assert split.taxable_after_discount_cents == 0
+    assert split.untaxed_after_discount_cents == 7000  # $80.00 − $10.00
 
 
 def test_percent_quote_discount_is_of_the_subtotal():

@@ -510,6 +510,10 @@ async def test_quote_discount_shows_in_the_foot(user, conn):
     assert text(user.find(marker="foot-quote-discount")) == "-$20.00"
     assert text(user.find(marker="foot-tax")) == "$5.59"
     await user.should_not_see(marker="foot-discounts")  # the line-discount row
+    # The breakdown, so the tax is checkable: taxable × 7.25% = Taxes.
+    assert text(user.find(marker="foot-discounted-subtotal")) == "$120.00"
+    assert text(user.find(marker="foot-post-discount-untaxed")) == "$42.86"
+    assert text(user.find(marker="foot-post-discount-taxable")) == "$77.14"
 
 
 async def test_both_discount_modes_are_refused_on_save(user, conn):
@@ -541,6 +545,9 @@ async def test_read_only_quote_with_a_quote_discount_reads_plainly(user, conn):
     # tax show once in the foot. See CALCULATIONS.md for the numbers.
     await user.should_see("Widget A: 2 ea. × $45.00 = $90.00")
     assert text(user.find(marker="foot-quote-discount")) == "-$20.00"
+    assert text(user.find(marker="foot-discounted-subtotal")) == "$231.00"
+    assert text(user.find(marker="foot-post-discount-untaxed")) == "$46.02"
+    assert text(user.find(marker="foot-post-discount-taxable")) == "$184.98"
     assert text(user.find(marker="foot-tax")) == "$13.41"
     assert text(user.find(marker="foot-total")) == "$244.41"
     await user.should_not_see(marker="foot-discounts")

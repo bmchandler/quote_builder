@@ -107,6 +107,16 @@ one, a taxed line shows its own tax beside "taxed", for a line-by-line
 check; a Quote Discount is a whole-quote figure, so that per-line
 breakdown isn't shown.)
 
+To keep the tax checkable even so, the foot then shows three more lines
+below the Quote Discount: **Discounted Subtotal** (Line Items − Quote
+Discount), and that subtotal split into **Post Discount Untaxed** and
+**Post Discount Taxable**. Post Discount Taxable sits just above Taxes
+because it's the figure tax is worked out on — a customer can multiply
+it by the rate and land on the Taxes row. These three always show in
+Quote Discount mode (an all-taxable quote simply reads $0.00 for Post
+Discount Untaxed, and an all-untaxable one $0.00 for Post Discount
+Taxable), so the foot is explicit rather than hiding rows.
+
 **Why the two modes don't read alike.** It would look more uniform to
 drop the per-line tax in line-discount mode as well, so that a line is
 always pre-tax and tax always sits in the foot. We don't, on purpose: a
@@ -146,10 +156,13 @@ taxable and non-taxable lines:
 The foot:
 
 ```
-Line Items        $251.00
-Quote Discount    −$20.00
-Taxes             +$13.41
-Total             $244.41
+Line Items               $251.00
+Quote Discount           −$20.00
+Discounted Subtotal       $231.00
+Post Discount Untaxed      $46.02
+Post Discount Taxable     $184.98
+Taxes                     +$13.41
+Total                     $244.41
 ```
 
 Two hand-checks: $251.00 − $20.00 = $231.00 paid before tax, and

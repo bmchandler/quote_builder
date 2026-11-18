@@ -18,7 +18,11 @@ from quote_builder.dates import format_numeric_date
 from quote_builder.money import format_discount_detail, format_money
 from quote_builder.phones import format_phone_ext
 from quote_builder.quotes import Quote, version_name
-from quote_builder.totals import shown_line_totals, shown_quote_totals
+from quote_builder.totals import (
+    quote_discount_split,
+    shown_line_totals,
+    shown_quote_totals,
+)
 from quote_builder.units import format_quantity
 
 
@@ -141,6 +145,13 @@ def _totals_rows(quote: Quote) -> str:
         rows.append(("Discounts", -totals.discount_cents))
     if totals.quote_discount_cents:
         rows.append(("Quote Discount", -totals.quote_discount_cents))
+    # The quote-discount breakdown, so the tax is checkable by hand: Post
+    # Discount Taxable sits just above Taxes (× the rate = Taxes).
+    if quote.has_quote_discount:
+        split = quote_discount_split(quote.line_items, totals)
+        rows.append(("Discounted Subtotal", split.discounted_subtotal_cents))
+        rows.append(("Post Discount Untaxed", split.untaxed_after_discount_cents))
+        rows.append(("Post Discount Taxable", split.taxable_after_discount_cents))
     rows.append(("Taxes", totals.tax_cents))
     body = "".join(
         f"<tr><td>{label}</td><td class='amt'>{format_money(cents)}</td></tr>"

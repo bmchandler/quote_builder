@@ -58,6 +58,18 @@ class QuoteTotals:
     total_cents: int
 
 
+@dataclass(frozen=True)
+class QuoteDiscountSplit:
+    """In quote-discount mode, how the foot breaks down for the customer to
+    check: the subtotal after the quote discount, and that subtotal divided
+    into its taxable and non-taxable parts (tax is figured on the taxable
+    part). Worked out in totals.py; see CALCULATIONS.md."""
+
+    discounted_subtotal_cents: int  # items − quote discount
+    untaxed_after_discount_cents: int  # the non-taxable part of it
+    taxable_after_discount_cents: int  # the taxable part; × rate = tax
+
+
 @dataclass
 class LineItem:
     description: str

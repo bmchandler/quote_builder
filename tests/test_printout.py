@@ -115,8 +115,27 @@ def test_a_quote_discount_shows_once_in_the_foot_with_plain_lines():
     assert "Discounts" not in html  # the line-discount row is gone
     # Lines read plainly: no per-line "taxed" or "less", just qty × price.
     assert "2 ea. × $45.00" in html
-    assert "taxed" not in html
+    assert ", taxed" not in html  # the per-line tax annotation is gone
     assert "$244.41" in html  # ($251 − $20) + $13.41 tax
+
+
+def test_a_quote_discount_breaks_the_subtotal_down_in_the_foot():
+    # The foot shows the discounted subtotal and its taxable/non-taxable
+    # parts, so a customer can check the tax: taxable × rate = Taxes.
+    quote = a_quote(
+        quote_discount_cents=2000,
+        line_items=[
+            LineItem("Widget A", Decimal(2), 4500, taxed=True),  # $90.00
+            LineItem("Widget B", Decimal(3), 3700, taxed=True),  # $111.00
+            LineItem("Consultation", Decimal(1), 5000),  # $50.00, untaxed
+        ],
+    )
+    html = render_quote_html(quote, BIZ)
+    assert "Discounted Subtotal" in html and "$231.00" in html
+    assert "Post Discount Untaxed" in html and "$46.02" in html
+    assert "Post Discount Taxable" in html and "$184.98" in html
+    # Post Discount Taxable sits just above Taxes.
+    assert html.index("Post Discount Taxable") < html.index("Taxes")
 
 
 def test_includes_terms_and_notes_when_present():
