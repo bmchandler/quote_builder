@@ -54,10 +54,16 @@ to be split down onto each line's tax base, which drags in uneven-cent
 division (a $10 discount over 3 lines isn't $3.33 × 3), the problem of
 a per-line share larger than a small line, and per-line totals that no
 longer add up on their own. Those "nooks and crannies" are a known
-source of billing confusion. Keeping the two modes apart avoids all of
-it: with a Quote Discount, no line carries a discount of its own, so
-tax is worked out once for the quote as a whole. The app refuses, on
-Save, to use both on one quote.
+source of billing confusion. Worse, every extra allocation step is a
+place to get a line's tax base wrong, and the result is hard for a
+person to check or debug by hand — which is exactly where
+over-collecting tax creeps in, the one error with real legal weight.
+Keeping the two modes apart avoids all of it: tax is always figured one
+simple way — once for the quote as a whole in Quote Discount mode (no
+line carries a discount of its own), or on each line's own discounted
+amount in line-discount mode. Both stay easy to verify and debug, which
+keeps the risk of over-taxing to a minimum. The app refuses, on Save,
+to use both on one quote.
 
 The coupon case ("$10 off next time for the trouble") is still served:
 check for it while drafting and use a Quote Discount on that quote.
@@ -100,6 +106,19 @@ plainly — `quantity × unit price = amount`, with no per-line "less" or
 one, a taxed line shows its own tax beside "taxed", for a line-by-line
 check; a Quote Discount is a whole-quote figure, so that per-line
 breakdown isn't shown.)
+
+**Why the two modes don't read alike.** It would look more uniform to
+drop the per-line tax in line-discount mode as well, so that a line is
+always pre-tax and tax always sits in the foot. We don't, on purpose: a
+per-line tax lets a customer check any taxed line on its own —
+quantity × price × (1 + rate), where the `1 + rate` (e.g. `1.0725`) is
+a figure people reach for by habit — and that easy hand-check is worth
+more than matching the two layouts. A Quote Discount can't offer the
+same: its discount, and therefore its tax, is a whole-quote figure, not
+a per-line one, so there the lines read plainly and tax is shown once
+in the foot. So the two modes read differently because they *are*
+different — one itemizes down to the line, the other discounts the
+quote as a whole.
 
 ## Walkthrough
 
