@@ -69,12 +69,19 @@ def quote_totals(
     items_cents = sum(line.amount_cents for line in lines)
     line_discount_cents = sum(line.discount_cents for line in lines)
     if quote_discount_cents is None and quote_discount_percent is None:
+        # Line-discount mode: tax once on the pooled taxable base (each
+        # taxed line's net), not per line, so a shown Taxable × rate lands
+        # on Taxes exactly. See CALCULATIONS.md.
+        taxable = sum(
+            line.net_cents for line, item in zip(lines, items) if item.taxed
+        )
+        tax = _whole_cents(taxable * tax_percent / 100)
         return QuoteTotals(
             items_cents=items_cents,
             discount_cents=line_discount_cents,
             quote_discount_cents=0,
-            tax_cents=sum(line.tax_cents for line in lines),
-            total_cents=sum(line.total_cents for line in lines),
+            tax_cents=tax,
+            total_cents=(items_cents - line_discount_cents) + tax,
         )
     # Quote-discount mode: one mode per quote, so no line discounts.
     if line_discount_cents:
@@ -118,8 +125,10 @@ def freeze(quote: Quote) -> Quote:
             for item in quote.line_items
         ]
     else:
+        # The line keeps its amount and discount; tax is a foot figure now
+        # (pooled), not per line, so the frozen line carries no tax.
         lines = [
-            replace(item, frozen=line_totals(item, percent))
+            replace(item, frozen=replace(line_totals(item, percent), tax_cents=0))
             for item in quote.line_items
         ]
     return replace(quote, line_items=lines, frozen=foot)
@@ -160,6 +169,17 @@ def quote_discount_split(
         discounted_subtotal_cents=discounted_subtotal,
         untaxed_after_discount_cents=discounted_subtotal - taxable_after,
         taxable_after_discount_cents=taxable_after,
+    )
+
+
+def line_mode_taxable_cents(items: Iterable[LineItem], tax_percent: Decimal) -> int:
+    """In line-discount mode, the base tax is figured on: the sum of the
+    taxed lines' nets (amount − line discount). × the rate = the foot's
+    Taxes, since tax is pooled. See CALCULATIONS.md."""
+    return sum(
+        shown_line_totals(item, tax_percent).net_cents
+        for item in items
+        if item.taxed
     )
 
 

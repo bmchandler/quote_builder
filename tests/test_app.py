@@ -355,27 +355,34 @@ async def test_totals_update_as_you_type(user, conn):
     user.find(marker="discount-1").type("10%")
     user.find(marker="taxed-1").click()
 
-    # $75.00 - 10% = $67.50; 7.25% tax on that = $4.89 ($4.894); the
-    # line shows the tax-included $72.39, as it's taxed.
-    await eventually(lambda: text(user.find(marker="line-total-1")) == "$72.39")
+    # $75.00 - 10% = $67.50 net; the line shows its net (tax is pooled at
+    # the foot). Taxable $67.50 × 7.25% = $4.89 ($4.894).
+    await eventually(lambda: text(user.find(marker="line-total-1")) == "$67.50")
     assert text(user.find(marker="foot-items")) == "$75.00"
     assert text(user.find(marker="foot-discounts")) == "-$7.50"
+    assert text(user.find(marker="foot-discounted-subtotal")) == "$67.50"
+    assert text(user.find(marker="foot-taxable")) == "$67.50"
     assert text(user.find(marker="foot-tax")) == "$4.89"
     assert text(user.find(marker="foot-total")) == "$72.39"
 
 
-async def test_a_lines_figure_includes_its_tax_when_taxed(user, conn):
+async def test_tax_is_pooled_at_the_foot_not_per_line(user, conn):
     rate_725(conn)
     await new_quote(user)
     fill_line(user, 1, "Mow lawn", "1", "100")
 
-    # Untaxed: the net price.
+    # The line reads its net whether taxed or not; tax shows once in the
+    # foot, and Taxable (× rate = Taxes) appears only when there's tax.
     await eventually(lambda: text(user.find(marker="line-total-1")) == "$100.00")
+    assert text(user.find(marker="foot-tax")) == "$0.00"
+    await user.should_not_see(marker="foot-taxable")
     user.find(marker="taxed-1").click()
-    # Taxed: $100.00 + 7.25% = $107.25.
-    await eventually(lambda: text(user.find(marker="line-total-1")) == "$107.25")
+    await eventually(lambda: text(user.find(marker="foot-tax")) == "$7.25")
+    assert text(user.find(marker="line-total-1")) == "$100.00"  # unchanged
+    assert text(user.find(marker="foot-taxable")) == "$100.00"
     user.find(marker="taxed-1").click()
-    await eventually(lambda: text(user.find(marker="line-total-1")) == "$100.00")
+    await eventually(lambda: text(user.find(marker="foot-tax")) == "$0.00")
+    await user.should_not_see(marker="foot-taxable")
 
 
 async def test_new_quote_starts_at_zero(user):
@@ -453,12 +460,15 @@ async def test_read_only_quote_shows_discounts_tax_and_totals(user, conn):
     await reload(user)
     user.find(marker=f"quote-{saved.number}").click()
 
-    # $67.50 net + $4.89 tax: the line shows its own tax beside "taxed"
-    # and its tax-included total.
+    # The line reads plainly, its net after the discount; tax is pooled at
+    # the foot, where Taxable $67.50 × 7.25% = $4.89.
     await user.should_see(
-        "Trim hedges: 2.5 ea. × $30.00, less 10% ($7.50), taxed $4.89 = $72.39"
+        "Trim hedges: 2.5 ea. × $30.00, less 10% ($7.50) = $67.50"
     )
     assert text(user.find(marker="view-tax-rate")) == "Tax: Home county 7.25%"
+    assert text(user.find(marker="foot-discounted-subtotal")) == "$67.50"
+    assert text(user.find(marker="foot-taxable")) == "$67.50"
+    assert text(user.find(marker="foot-tax")) == "$4.89"
     assert text(user.find(marker="foot-total")) == "$72.39"
     await user.should_see("Line Items")  # foot label, not bare "Items"
     await user.should_see("Taxes")  # foot total label, plural

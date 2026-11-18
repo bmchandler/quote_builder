@@ -65,13 +65,11 @@ Future (not now):
   as a trade-name header, and a pilot has no separate person's name.
   A quote without a customer gets a "Prepared for:" label and a ruled
   line to write a name on by hand (noted 2026-11-01; done 2026-11-16).
-  A taxed line shows its own tax beside "taxed" (done 2026-11-17), on
-  the printout and the finalized (Quoted) display, not in the draft
-  editor: `2.5 × $30.00, less 10% ($7.50), taxed $4.89 = $72.39`, so a
-  customer can check the figures add up and the Quoted display can be
-  checked against the printout. No parentheses on the tax, to read like
-  the rest of the line. The figure is the line's tax_cents
-  (shown_line_totals).
+  Lines read plainly — `2.5 × $30.00, less 10% ($7.50) = $67.50`, the
+  net after any discount — with no per-line tax, since tax is pooled at
+  the foot (decided 2026-11-18, superseding the per-line "taxed $X"
+  shown briefly on 2026-11-17). The customer checks tax against the
+  foot's Taxable row instead (Taxable × rate = Taxes).
   A percent discount shows its worked-out dollars in parentheses
   (done 2026-11-17): `less 10% ($7.50)`, so a customer needn't do the
   percentage math to check it; the dollars are the line's discount_cents
@@ -244,23 +242,29 @@ take either style: `10%` is a percent, anything else an amount (`5`,
 `7.25%`, blank for none (decided 2026-10-19, for the Tax % a line had
 then).
 
-Each line is worked out to the cent on its own (totals.py): quantity ×
-unit price, less the discount, then tax on what's left, each rounded
-half up (half a cent rounds up). The quote's totals add up the lines'
-cents, so the foot always matches the lines (decided 2026-10-19).
+Each line is worked out to the cent (totals.py): quantity × unit price,
+less the discount, rounded half up (half a cent rounds up). Tax,
+though, is figured once for the whole quote, not per line (decided
+2026-11-18): on the pooled taxable base — the sum of the taxed lines'
+nets, after discounts — so a shown Taxable × the rate lands on the
+Taxes row exactly. (Earlier the app taxed each line and summed; pooling
+is what makes the aggregate check hold, and it unifies the two discount
+modes — both now read plainly and tax once in the foot.)
 
-That's the usual US sales tax rule (tax carried to a third decimal
-place, rounded up from 5), with tax figured per item, which most
-states allow beside per invoice, on the combined state and local
-rate. States that use bracket tables instead (Maryland, and Alabama in
-part) aren't supported, nor is rounding per invoice (decided
-2026-10-19).
+That's per-invoice (aggregate) rounding, a standard US method on the
+combined state and local rate; QD mode already used it. States that use
+bracket tables instead (Maryland, and Alabama in part) aren't supported
+(decided 2026-10-19). Per-item rounding (tax each line, then sum) is no
+longer used; it can differ from the pooled figure by a cent or two, and
+can't be checked against a single Taxable row. Neither method is the
+filed return — the business reconciles real tax at filing on period
+totals — and this isn't tax advice; see [CALCULATIONS.md](CALCULATIONS.md).
 
 A draft's totals are worked out from its lines whenever shown, never
 stored. Once a quote is quoted, its figures are frozen (decided
-2026-10-19): each line's amount, discount, and tax (its total is
-their sum; with a Quote Discount a line's own discount and tax are
-zero, its tax being a whole-quote figure), and the foot's totals (the
+2026-10-19): each line's amount and discount (a line carries no tax of
+its own now that tax is pooled; with a Quote Discount its discount is
+zero too, being a whole-quote figure), and the foot's totals (the
 worked-out Quote Discount among them) are stored with it and shown from
 then on, so a later
 change to how totals are worked out never changes what a customer was
@@ -280,12 +284,18 @@ The quote's foot shows totals: line items before discounts (labelled
 physical items only), then the discount in play — "Discounts" for line
 discounts, "Quote Discount" for a whole-quote one, and neither when
 there's none — then taxes and the total. A discount row shows only for
-the mode in use, so the foot always reads cleanly. In Quote Discount
-mode the foot also carries the "Discounted Subtotal", "Post Discount
-Untaxed", and "Post Discount Taxable" breakdown (above), so the tax is
-checkable by hand. They update as the form is typed in; a line with no
-price yet counts as nothing, and while any line doesn't read, its total
-and the foot show a dash.
+the mode in use, so the foot always reads cleanly. Since tax is pooled,
+the foot also shows the base it's figured on, so a customer can check
+it (decided 2026-11-18): in Quote Discount mode the "Discounted
+Subtotal", "Post Discount Untaxed", and "Post Discount Taxable"
+breakdown (above); in line-discount mode a "Discounted Subtotal" (only
+when there are discounts) and a "Taxable" row (only when there's tax)
+just above Taxes, where Taxable × rate = Taxes. Line-discount mode
+leaves out an "Untaxed" row for simplicity — it's the more common mode
+and often has no discount at all, so the foot stays minimal; an
+all-services quote just shows Taxes $0.00. They update as the form is
+typed in; a line with no price yet counts as nothing, and while any
+line doesn't read, its total and the foot show a dash.
 
 Quote numbers (decided 2026-10-17) are `Q-` and a random code shaped
 like a phone number, three characters then four: `Q-7KQ-M9XD`. The
@@ -578,11 +588,11 @@ Built (as of 2026-11-01), each with tests:
     Changing the rate works the taxed lines out again at once;
     Untaxed leaves the boxes ticked, so switching back restores the
     tax. The rate counts as a change for "Discard unsaved changes?".
-    A quoted quote shows "Tax: Home county 7.25%" ("Tax: Untaxed"),
-    and its lines say "taxed". A line's own figure (in the form, after
-    its Tax box; on a quoted quote, its "= ") includes its tax when it's
-    taxed, so ticking Tax changes it and a line's share of the tax is
-    plain, not only the foot's total (decided 2026-11-04).
+    A quoted quote shows "Tax: Home county 7.25%" ("Tax: Untaxed").
+    A line's figure (in the form, and on a quoted quote after "= ") is
+    its net after any discount; tax is pooled at the foot (decided
+    2026-11-18), so ticking Tax doesn't change a line's figure — it
+    moves the line into the foot's Taxable base and so changes Taxes.
   - Tax changed on a revision (decided 2026-11-02): a revision draft
     takes its rate as it is now, so when its percent differs from what
     the version before was quoted at, an amber banner under the heading

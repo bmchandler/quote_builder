@@ -108,6 +108,7 @@ from quote_builder.search import (
 from quote_builder.totals import (
     BOTH_MODES,
     line_amount_cents,
+    line_mode_taxable_cents,
     line_totals,
     quote_discount_split,
     quote_totals,
@@ -1799,11 +1800,10 @@ def quote_editor(
                     # shows its plain amount.
                     line.total.text = format_money(line_amount_cents(item))
                 else:
-                    # The line's figure includes its tax when it's taxed (tax
-                    # is zero otherwise), so ticking Tax changes the number: a
-                    # line's share of the tax is plain, not only the foot's.
+                    # Tax is pooled at the foot, not per line, so the line
+                    # shows its net (amount − its discount), no tax.
                     line.total.text = format_money(
-                        line_totals(item, percent).total_cents
+                        line_totals(item, percent).net_cents
                     )
                 items.append(item)
             except ValueError:
@@ -1814,8 +1814,12 @@ def quote_editor(
         try:
             present = [item for item in items if item is not None]
             totals = quote_totals(present, percent, qd_cents, qd_percent)
-            split = quote_discount_split(present, totals) if has_qd else None
-            totals_foot(totals, split)
+            if has_qd:
+                totals_foot(totals, split=quote_discount_split(present, totals))
+            else:
+                totals_foot(
+                    totals, taxable=line_mode_taxable_cents(present, percent)
+                )
         except ValueError:
             # Both discount modes at once, or a quote discount over the
             # subtotal: the foot can't be worked out. Save says what's wrong.
@@ -2096,11 +2100,15 @@ def date_input(
 
 
 def totals_foot(
-    totals: QuoteTotals | None, split: QuoteDiscountSplit | None = None
+    totals: QuoteTotals | None,
+    split: QuoteDiscountSplit | None = None,
+    taxable: int | None = None,
 ) -> None:
-    """The quote's totals, or dashes while a line doesn't read. In
-    quote-discount mode `split` adds the discounted subtotal and its
-    taxable/non-taxable parts, so the customer can check the tax by hand."""
+    """The quote's totals, or dashes while a line doesn't read. The
+    breakdown helps a customer check the tax: in quote-discount mode
+    `split` adds the discounted subtotal and its taxable/non-taxable
+    parts; in line-discount mode `taxable` adds the discounted subtotal
+    (when discounted) and the Taxable base (× the rate = Taxes)."""
 
     def amount(cents: int) -> str:
         return "—" if totals is None else format_money(cents)
@@ -2123,6 +2131,15 @@ def totals_foot(
             ("Post Discount Taxable", split.taxable_after_discount_cents,
              "post-discount-taxable"),
         ]
+    # Line-discount mode: the discounted subtotal (only when discounted),
+    # then the Taxable base just above Taxes (only when there's tax).
+    elif totals is not None and taxable is not None:
+        if totals.discount_cents:
+            rows.append(("Discounted Subtotal",
+                         totals.items_cents - totals.discount_cents,
+                         "discounted-subtotal"))
+        if totals.tax_cents:
+            rows.append(("Taxable", taxable, "taxable"))
     rows += [
         ("Taxes", totals.tax_cents if totals else 0, "tax"),
         ("Total", totals.total_cents if totals else 0, "total"),
@@ -2212,21 +2229,18 @@ def quote_view(
                 item.discount_cents, item.discount_percent, line_totals.discount_cents
             ):
                 rest += f", less {discount}"
-            if item.taxed:
-                # The line's own tax beside "taxed", for a by-hand check
-                # against the printout (no parentheses, to read like the rest).
-                rest += f", taxed {format_money(line_totals.tax_cents)}"
-            # The figure includes the line's tax when taxed (zero otherwise),
-            # so a line's share of the tax shows.
-            rest += f" = {format_money(line_totals.total_cents)}"
+            # Tax is pooled at the foot (Taxable × rate), not per line, so
+            # the line reads plainly: its net after any line discount.
+            rest += f" = {format_money(line_totals.net_cents)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals = shown_quote_totals(quote)
-    split = (
-        quote_discount_split(quote.line_items, totals)
-        if quote.has_quote_discount
-        else None
-    )
-    totals_foot(totals, split)
+    if quote.has_quote_discount:
+        totals_foot(totals, split=quote_discount_split(quote.line_items, totals))
+    else:
+        totals_foot(
+            totals,
+            taxable=line_mode_taxable_cents(quote.line_items, quote.tax_percent),
+        )
     if quote.notes:
         searched_text(quote.notes, term).mark("view-notes")
 

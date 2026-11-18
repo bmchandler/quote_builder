@@ -19,6 +19,7 @@ from quote_builder.money import format_discount_detail, format_money
 from quote_builder.phones import format_phone_ext
 from quote_builder.quotes import Quote, version_name
 from quote_builder.totals import (
+    line_mode_taxable_cents,
     quote_discount_split,
     shown_line_totals,
     shown_quote_totals,
@@ -123,11 +124,9 @@ def _lines_rows(quote: Quote) -> str:
                 item.discount_cents, item.discount_percent, line_totals.discount_cents
             ):
                 qty_price += f", less {discount}"
-            if item.taxed:
-                # The line's own tax beside "taxed", so a customer can check
-                # the figures add up (no parentheses, to read like the rest).
-                qty_price += f", taxed {format_money(line_totals.tax_cents)}"
-            amount = line_totals.total_cents
+            # Tax is pooled at the foot (Taxable × rate), not per line, so
+            # the line reads plainly: its net after any line discount.
+            amount = line_totals.net_cents
         rows.append(
             f"<tr><td>{_esc(item.description)}</td>"
             f"<td>{_esc(qty_price)}</td>"
@@ -152,6 +151,16 @@ def _totals_rows(quote: Quote) -> str:
         rows.append(("Discounted Subtotal", split.discounted_subtotal_cents))
         rows.append(("Post Discount Untaxed", split.untaxed_after_discount_cents))
         rows.append(("Post Discount Taxable", split.taxable_after_discount_cents))
+    else:
+        # Line-discount mode: the discounted subtotal (only when
+        # discounted), then the Taxable base just above Taxes (only when
+        # there's tax), so Taxable × rate = Taxes.
+        if totals.discount_cents:
+            rows.append(("Discounted Subtotal",
+                         totals.items_cents - totals.discount_cents))
+        if totals.tax_cents:
+            taxable = line_mode_taxable_cents(quote.line_items, quote.tax_percent)
+            rows.append(("Taxable", taxable))
     rows.append(("Taxes", totals.tax_cents))
     body = "".join(
         f"<tr><td>{label}</td><td class='amt'>{format_money(cents)}</td></tr>"

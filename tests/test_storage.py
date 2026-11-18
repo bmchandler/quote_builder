@@ -349,7 +349,8 @@ def test_mark_a_new_draft_quoted(conn):
     assert quoted.status is Status.QUOTED
     assert (quoted.issued_on, quoted.valid_until) == (ISSUED, VALID_UNTIL)
     assert quoted.frozen == LAWN_TOTALS
-    assert quoted.line_items[2].frozen == LineTotals(1899, 200, 123)
+    # Tax is pooled at the foot now, so the frozen line carries none.
+    assert quoted.line_items[2].frozen == LineTotals(1899, 200, 0)
     assert load_quote(conn, "Q-7KQ-M9XD") == quoted
 
 

@@ -58,16 +58,37 @@ def test_shows_the_quote_heading_dates_and_customer():
     assert "Jane Doe" in html
 
 
-def test_shows_lines_tax_and_the_total():
+def test_shows_the_taxable_base_and_the_total():
     html = render_quote_html(a_quote(), BIZ)
     assert "Mow lawn" in html
     assert "Trim hedges" in html
     assert "Tax rate: Home county 7.25%" in html
     assert "Line Items" in html  # foot label, not bare "Items"
     assert "Taxes" in html  # foot total label, plural like the rest
-    assert "taxed $3.26" in html  # Mow lawn: $45.00 at 7.25%
-    assert "taxed $5.44" in html  # Trim hedges: $75.00 at 7.25%
+    assert ", taxed" not in html  # tax is pooled at the foot, not per line
+    assert "Taxable" in html and "$120.00" in html  # × 7.25% = Taxes
     assert "$128.70" in html  # 120.00 + 7.25% tax
+
+
+def test_line_discounts_show_the_discounted_subtotal_and_taxable():
+    # With line discounts, the foot carries Discounted Subtotal and the
+    # Taxable base (× rate = Taxes); lines read plainly, no per-line tax.
+    quote = a_quote(
+        line_items=[
+            LineItem("Widget A", Decimal(2), 4500, taxed=True,
+                     discount_percent=Decimal("10")),  # $90 − $9 = $81
+            LineItem("Widget B", Decimal(1), 4000, taxed=True,
+                     discount_cents=500),  # $40 − $5 = $35
+            LineItem("Consultation", Decimal(1), 5000,
+                     discount_percent=Decimal("10")),  # $50 − $5 = $45
+        ],
+    )
+    html = render_quote_html(quote, BIZ)
+    assert ", taxed" not in html  # tax is pooled at the foot
+    assert "Discounted Subtotal" in html and "$161.00" in html  # $180 − $19
+    assert "Taxable" in html and "$116.00" in html  # taxed nets $81 + $35
+    assert "$8.41" in html  # $116.00 × 7.25%
+    assert "$169.41" in html  # $161.00 + $8.41
 
 
 def test_shows_each_lines_quantity_with_its_unit():

@@ -5,6 +5,7 @@ import pytest
 from quote_builder.quotes import LineItem, LineTotals, Quote, QuoteTotals
 from quote_builder.totals import (
     freeze,
+    line_mode_taxable_cents,
     line_totals,
     quote_discount_split,
     quote_totals,
@@ -97,9 +98,11 @@ def test_freeze_stores_each_lines_figures_and_the_foot():
         tax_percent=RATE,
     )
     frozen = freeze(quote)
+    # The line keeps its amount and discount; tax is pooled at the foot
+    # now, so a frozen line carries no tax of its own.
     assert [item.frozen for item in frozen.line_items] == [
         LineTotals(4500, 0, 0),
-        LineTotals(10000, 1000, 653),
+        LineTotals(10000, 1000, 0),
     ]
     assert frozen.frozen == QuoteTotals(14500, 1000, 0, 653, 14153)
     assert quote.frozen is None  # a copy; the quote itself is left alone
@@ -118,6 +121,30 @@ def test_shown_totals_are_worked_out_for_a_draft():
     assert shown_line_totals(item, RATE).tax_cents == 326  # $3.2625
     quote = Quote(line_items=[item], tax_percent=RATE)
     assert shown_quote_totals(quote).total_cents == 4826
+
+
+def test_line_discount_mode_taxes_the_pooled_base_not_each_line():
+    # Two taxed lines, each net $10.00. Pooled: $20.00 × 7.25% = $1.45.
+    # Per line it would be $0.725 → $0.73 each = $1.46, a penny more; the
+    # pooled figure is what makes a shown Taxable × rate land on Taxes.
+    lines = [line("1", 1000, taxed=True), line("1", 1000, taxed=True)]
+    totals = quote_totals(lines, RATE)
+    assert totals.tax_cents == 145
+    assert totals.total_cents == 2145  # $20.00 + $1.45
+    assert line_mode_taxable_cents(lines, RATE) == 2000  # × 7.25% = Taxes
+
+
+def test_line_mode_taxable_is_the_sum_of_taxed_nets():
+    # $90 taxed less 10% → $81 net, $40 taxed less $5 → $35 net, $50
+    # untaxed. Taxable is the taxed nets only: $81 + $35 = $116.
+    lines = [
+        line("2", 4500, taxed=True, discount_percent=Decimal("10")),
+        line("1", 4000, taxed=True, discount_cents=500),
+        line("1", 5000, discount_percent=Decimal("10")),
+    ]
+    assert line_mode_taxable_cents(lines, RATE) == 11600
+    totals = quote_totals(lines, RATE)
+    assert totals.tax_cents == 841  # $116.00 × 7.25% = $8.41105 → $8.41
 
 
 # A whole-quote discount, applied before tax and split across the taxable
