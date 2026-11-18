@@ -49,7 +49,11 @@ class QuoteTotals:
     """A quote's foot: what its lines add up to."""
 
     items_cents: int  # the lines' amounts, before discounts
-    discount_cents: int
+    discount_cents: int  # the lines' own discounts (line-discount mode)
+    # A whole-quote discount worked out to cents (quote-discount mode); 0
+    # when none. A quote uses one mode or the other, never both: see
+    # CALCULATIONS.md.
+    quote_discount_cents: int
     tax_cents: int
     total_cents: int
 
@@ -94,6 +98,12 @@ class Quote:
     tax_rate_id: int | None = None
     tax_name: str = ""  # blank for Untaxed
     tax_percent: Decimal = Decimal(0)
+    # A whole-quote discount: an amount or a percent, never both, and
+    # never alongside a line's own discount (one discount mode per quote;
+    # see CALCULATIONS.md). Applied before tax, split across the taxable
+    # and non-taxable lines by their share of the subtotal.
+    quote_discount_cents: int | None = None
+    quote_discount_percent: Decimal | None = None
     frozen: QuoteTotals | None = None  # stored once quoted, as for lines
     extensions: list[Extension] = field(default_factory=list)  # oldest first
     # Its customer, if any: its own copy of the details, as typed or
@@ -102,6 +112,14 @@ class Quote:
     # The business's details frozen onto the quote when quoted, for its
     # printout; None on a draft (it uses the business as it is now).
     printed_business: PrintedBusiness | None = None
+
+    @property
+    def has_quote_discount(self) -> bool:
+        """Whether a whole-quote discount is set (quote-discount mode)."""
+        return (
+            self.quote_discount_cents is not None
+            or self.quote_discount_percent is not None
+        )
 
 
 @dataclass
@@ -214,6 +232,8 @@ def revision_draft(quote: Quote, revision: int) -> Quote:
         line_items=[replace(item, frozen=None) for item in quote.line_items],
         # The same rate, as it is now (filled in when it's shown).
         tax_rate_id=quote.tax_rate_id,
+        quote_discount_cents=quote.quote_discount_cents,
+        quote_discount_percent=quote.quote_discount_percent,
         customer=quote.customer,  # the quote's own copy, not the list's
     )
 
@@ -233,5 +253,7 @@ def duplicate_draft(quote: Quote) -> Quote:
         line_items=[replace(item, frozen=None) for item in quote.line_items],
         # The same rate, as it is now (filled in when it's shown).
         tax_rate_id=quote.tax_rate_id,
+        quote_discount_cents=quote.quote_discount_cents,
+        quote_discount_percent=quote.quote_discount_percent,
         customer=quote.customer,  # the quote's own copy, not the list's
     )

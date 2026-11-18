@@ -188,7 +188,7 @@ def test_duplicate_draft_is_a_fresh_quote_keeping_the_changeable_parts():
         tax_rate_id=1,
         tax_name="Home county",
         tax_percent=Decimal("7.25"),
-        frozen=QuoteTotals(4500, 0, 326, 4826),
+        frozen=QuoteTotals(4500, 0, 0, 326, 4826),
         extensions=[Extension(date(2026, 9, 15), date(2026, 10, 1), date(2026, 10, 31))],
         customer=customer,
     )

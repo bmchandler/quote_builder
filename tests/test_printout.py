@@ -101,6 +101,24 @@ def test_a_flat_discount_stays_as_dollars():
     assert "less $5.00" in html
 
 
+def test_a_quote_discount_shows_once_in_the_foot_with_plain_lines():
+    quote = a_quote(
+        quote_discount_cents=2000,
+        line_items=[
+            LineItem("Widget A", Decimal(2), 4500, taxed=True),  # $90.00
+            LineItem("Widget B", Decimal(3), 3700, taxed=True),  # $111.00
+            LineItem("Consultation", Decimal(1), 5000),  # $50.00, untaxed
+        ],
+    )
+    html = render_quote_html(quote, BIZ)
+    assert "Quote Discount" in html
+    assert "Discounts" not in html  # the line-discount row is gone
+    # Lines read plainly: no per-line "taxed" or "less", just qty × price.
+    assert "2 ea. × $45.00" in html
+    assert "taxed" not in html
+    assert "$244.41" in html  # ($251 − $20) + $13.41 tax
+
+
 def test_includes_terms_and_notes_when_present():
     html = render_quote_html(a_quote(), BIZ)
     assert "Payment due within 30 days." in html

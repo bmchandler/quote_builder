@@ -100,12 +100,20 @@ CREATE TABLE IF NOT EXISTS quotes (
     -- rate leaves a quoted quote its frozen copy below (the app refuses
     -- while a draft uses it).
     tax_rate_id INTEGER REFERENCES tax_rates (id) ON DELETE SET NULL,
+    -- A whole-quote discount: an amount (cents) or a percent (TEXT),
+    -- never both, and never with a line's own discount (one discount mode
+    -- per quote; see CALCULATIONS.md). As typed, kept on a draft and a
+    -- quoted quote alike; the frozen worked-out amount is below.
+    quote_discount_cents   INTEGER,
+    quote_discount_percent TEXT,
     -- When last saved: UTC, ISO 8601 with the offset, shown in local time.
     updated_at  TEXT    NOT NULL,
     -- The foot's totals, stored once quoted (frozen) and shown from then
     -- on; a draft's are worked out from its lines whenever shown.
-    frozen_items_cents    INTEGER,
-    frozen_discount_cents INTEGER,
+    frozen_items_cents          INTEGER,
+    frozen_discount_cents       INTEGER,
+    -- The quote discount worked out to cents when quoted (0 if none).
+    frozen_quote_discount_cents INTEGER,
     frozen_tax_cents      INTEGER,
     frozen_total_cents    INTEGER,
     -- The rate as it was when quoted ('' and '0' for Untaxed).
@@ -129,12 +137,15 @@ CREATE TABLE IF NOT EXISTS quotes (
     frozen_business_email   TEXT,
     frozen_business_website TEXT,
     frozen_business_terms   TEXT,
+    -- A quote discount is an amount or a percent, never both.
+    CHECK (quote_discount_cents IS NULL OR quote_discount_percent IS NULL),
     UNIQUE (number, revision),
     -- Only a draft goes without dates and frozen totals.
     CHECK (status = 'Draft' OR (issued_on IS NOT NULL
                                 AND valid_until IS NOT NULL)),
     CHECK ((status = 'Draft') = (frozen_items_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_discount_cents IS NULL)),
+    CHECK ((status = 'Draft') = (frozen_quote_discount_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_tax_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_total_cents IS NULL)),
     CHECK ((status = 'Draft') = (frozen_tax_name IS NULL)),

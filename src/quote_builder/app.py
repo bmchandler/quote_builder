@@ -105,6 +105,8 @@ from quote_builder.search import (
     row_text,
 )
 from quote_builder.totals import (
+    BOTH_MODES,
+    line_amount_cents,
     line_totals,
     quote_totals,
     shown_line_totals,
@@ -1633,17 +1635,36 @@ def quote_editor(
     )
     # The business's rates as they are now: a draft follows its rate.
     rates = {rate.id: rate for rate in list_tax_rates(conn, quote.business_id)}
-    tax_rate = (
-        ui.select(
-            {UNTAXED: "Untaxed"}
-            | {rate.id: f"{rate.name} · {rate.percent}%" for rate in rates.values()},
-            label="Tax rate",
-            value=quote.tax_rate_id if quote.tax_rate_id in rates else UNTAXED,
-            on_change=lambda: rate_picked(),
+    with ui.row().classes("items-end gap-4"):
+        tax_rate = (
+            ui.select(
+                {UNTAXED: "Untaxed"}
+                | {rate.id: f"{rate.name} · {rate.percent}%" for rate in rates.values()},
+                label="Tax rate",
+                value=quote.tax_rate_id if quote.tax_rate_id in rates else UNTAXED,
+                on_change=lambda: rate_picked(),
+            )
+            .classes("w-64")
+            .mark("tax-rate")
         )
-        .classes("w-64")
-        .mark("tax-rate")
-    )
+        # A whole-quote discount, as an amount or a percent like a line's.
+        # One discount style per quote: Save refuses it alongside a line's
+        # own discount (checked in changed_quote).
+        quote_discount = (
+            ui.input(
+                "Quote Discount",
+                value=format_discount(
+                    quote.quote_discount_cents, quote.quote_discount_percent
+                ),
+                on_change=lambda: update_totals(),
+            )
+            .props('placeholder="$ or %"')
+            .classes("w-40")
+            .mark("quote-discount")
+        )
+        quote_discount.tooltip(
+            "One discount style per quote: line discounts or this, not both"
+        )
 
     def with_tax_rate(changed: Quote) -> Quote:
         """`changed` taxed at the rate picked."""
@@ -1748,9 +1769,19 @@ def quote_editor(
         from_catalog.add_slot("option", TWO_LINE_OPTION)
     load_catalog()
 
+    def quote_discount_values() -> tuple[int | None, Decimal | None]:
+        """The Quote Discount as (cents, percent); (None, None) when blank
+        or it doesn't read (Save reports a bad entry)."""
+        try:
+            return parse_discount(quote_discount.value)
+        except ValueError:
+            return (None, None)
+
     @ui.refreshable
     def foot() -> None:
         percent = with_tax_rate(quote).tax_percent
+        qd_cents, qd_percent = quote_discount_values()
+        has_qd = qd_cents is not None or qd_percent is not None
         items = []
         for line in lines:
             if not line.price.value.strip():
@@ -1760,18 +1791,36 @@ def quote_editor(
                 continue
             try:
                 item = line.item()
-                # The line's figure includes its tax when it's taxed (tax is
-                # zero otherwise), so ticking Tax changes the number: a line's
-                # share of the tax is plain, not only the foot's total.
-                line.total.text = format_money(line_totals(item, percent).total_cents)
+                if has_qd:
+                    # With a quote discount the line's own tax isn't shown
+                    # (tax is worked out for the quote as a whole); the line
+                    # shows its plain amount.
+                    line.total.text = format_money(line_amount_cents(item))
+                else:
+                    # The line's figure includes its tax when it's taxed (tax
+                    # is zero otherwise), so ticking Tax changes the number: a
+                    # line's share of the tax is plain, not only the foot's.
+                    line.total.text = format_money(
+                        line_totals(item, percent).total_cents
+                    )
                 items.append(item)
             except ValueError:
                 line.total.text = "—"  # shown until the line reads
-        if len(items) == len(lines):
+        if len(items) != len(lines):
+            totals_foot(None)
+            return
+        try:
             totals_foot(
-                quote_totals((item for item in items if item is not None), percent)
+                quote_totals(
+                    (item for item in items if item is not None),
+                    percent,
+                    qd_cents,
+                    qd_percent,
+                )
             )
-        else:
+        except ValueError:
+            # Both discount modes at once, or a quote discount over the
+            # subtotal: the foot can't be worked out. Save says what's wrong.
             totals_foot(None)
 
     def update_totals() -> None:
@@ -1811,14 +1860,27 @@ def quote_editor(
         try:
             items = [_checked_item(n, line) for n, line in enumerate(lines, 1)]
             typed_customer = customer.customer()
+            try:
+                qd_cents, qd_percent = parse_discount(quote_discount.value)
+            except ValueError as problem:
+                raise ValueError(f"Quote Discount: {problem}") from None
         except ValueError as problem:
             ui.notify(str(problem), type="negative")
+            return None
+        has_qd = qd_cents is not None or qd_percent is not None
+        if has_qd and any(
+            item.discount_cents is not None or item.discount_percent is not None
+            for item in items
+        ):
+            ui.notify(BOTH_MODES, type="negative")
             return None
         return with_tax_rate(
             replace(
                 quote,
                 notes=notes.value.strip(),
                 line_items=items,
+                quote_discount_cents=qd_cents,
+                quote_discount_percent=qd_percent,
                 customer=typed_customer,
             )
         )
@@ -1882,7 +1944,13 @@ def quote_editor(
             )
             for line in lines
         )
-        return (customer.state(), tax_rate.value, typed_lines, notes.value)
+        return (
+            customer.state(),
+            tax_rate.value,
+            quote_discount.value,
+            typed_lines,
+            notes.value,
+        )
 
     # Saving shows the quote again in a new form, so this is also the
     # state as last saved. Changes undone by hand count as no change.
@@ -2035,9 +2103,14 @@ def totals_foot(totals: QuoteTotals | None) -> None:
     def amount(cents: int) -> str:
         return "—" if totals is None else format_money(cents)
 
-    rows = [
-        ("Line Items", totals.items_cents if totals else 0, "items"),
-        ("Discounts", -totals.discount_cents if totals else 0, "discounts"),
+    rows = [("Line Items", totals.items_cents if totals else 0, "items")]
+    # A discount row shows only for the mode in use, so the foot always
+    # reads cleanly: line discounts, a Quote Discount, or neither.
+    if totals and totals.discount_cents:
+        rows.append(("Discounts", -totals.discount_cents, "discounts"))
+    if totals and totals.quote_discount_cents:
+        rows.append(("Quote Discount", -totals.quote_discount_cents, "quote-discount"))
+    rows += [
         ("Taxes", totals.tax_cents if totals else 0, "tax"),
         ("Total", totals.total_cents if totals else 0, "total"),
     ]
@@ -2116,18 +2189,23 @@ def quote_view(
     for n, item in enumerate(quote.line_items, start=1):
         qty = format_quantity(item.quantity, item.unit)
         rest = f": {qty} × {format_money(item.unit_price_cents)}"
-        # The figure includes the line's tax when taxed, as the editor's
-        # does (tax is zero otherwise), so a line's share of the tax shows.
         line_totals = shown_line_totals(item, quote.tax_percent)
-        if discount := format_discount_detail(
-            item.discount_cents, item.discount_percent, line_totals.discount_cents
-        ):
-            rest += f", less {discount}"
-        if item.taxed:
-            # The line's own tax beside "taxed", for a by-hand double-check
-            # against the printout (no parentheses, to read like the rest).
-            rest += f", taxed {format_money(line_totals.tax_cents)}"
-        rest += f" = {format_money(line_totals.total_cents)}"
+        if quote.has_quote_discount:
+            # A whole-quote discount is shown once in the foot, not per
+            # line; the line reads plainly, its amount before any tax.
+            rest += f" = {format_money(line_totals.net_cents)}"
+        else:
+            if discount := format_discount_detail(
+                item.discount_cents, item.discount_percent, line_totals.discount_cents
+            ):
+                rest += f", less {discount}"
+            if item.taxed:
+                # The line's own tax beside "taxed", for a by-hand check
+                # against the printout (no parentheses, to read like the rest).
+                rest += f", taxed {format_money(line_totals.tax_cents)}"
+            # The figure includes the line's tax when taxed (zero otherwise),
+            # so a line's share of the tax shows.
+            rest += f" = {format_money(line_totals.total_cents)}"
         searched_text(item.description, term, after=rest).mark(f"view-line-{n}")
     totals_foot(shown_quote_totals(quote))
     if quote.notes:

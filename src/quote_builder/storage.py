@@ -539,9 +539,13 @@ def _overwrite_draft(
         UPDATE quotes
         SET status = :status, issued_on = :issued_on,
             valid_until = :valid_until, notes = :notes,
-            tax_rate_id = :tax_rate_id, updated_at = :updated_at,
+            tax_rate_id = :tax_rate_id,
+            quote_discount_cents = :quote_discount_cents,
+            quote_discount_percent = :quote_discount_percent,
+            updated_at = :updated_at,
             frozen_items_cents = :items_cents,
             frozen_discount_cents = :discount_cents,
+            frozen_quote_discount_cents = :quote_discount_frozen_cents,
             frozen_tax_cents = :tax_cents, frozen_total_cents = :total_cents,
             frozen_tax_name = :tax_name, frozen_tax_percent = :tax_percent,
             customer_name = :customer_name,
@@ -652,7 +656,8 @@ def extend_quote(
 # in the same order: for the two INSERTs.
 _QUOTE_COLUMNS = """
     business_id, number, revision, status, issued_on, valid_until, notes,
-    tax_rate_id, updated_at, frozen_items_cents, frozen_discount_cents,
+    tax_rate_id, quote_discount_cents, quote_discount_percent, updated_at,
+    frozen_items_cents, frozen_discount_cents, frozen_quote_discount_cents,
     frozen_tax_cents, frozen_total_cents, frozen_tax_name, frozen_tax_percent,
     customer_name, customer_email, customer_phone, customer_ext, customer_address,
     frozen_business_name, frozen_business_address, frozen_business_phone,
@@ -661,7 +666,8 @@ _QUOTE_COLUMNS = """
 """
 _QUOTE_VALUES = """
     :business_id, :number, :revision, :status, :issued_on, :valid_until,
-    :notes, :tax_rate_id, :updated_at, :items_cents, :discount_cents,
+    :notes, :tax_rate_id, :quote_discount_cents, :quote_discount_percent,
+    :updated_at, :items_cents, :discount_cents, :quote_discount_frozen_cents,
     :tax_cents, :total_cents, :tax_name, :tax_percent,
     :customer_name, :customer_email, :customer_phone, :customer_ext,
     :customer_address,
@@ -683,9 +689,14 @@ def _quote_values(quote: Quote, number: str | None, updated_at: str) -> dict:
         "valid_until": _iso(quote.valid_until),
         "notes": quote.notes,
         "tax_rate_id": quote.tax_rate_id,
+        "quote_discount_cents": quote.quote_discount_cents,
+        "quote_discount_percent": _text(quote.quote_discount_percent),
         "updated_at": updated_at,
         "items_cents": frozen.items_cents if frozen else None,
         "discount_cents": frozen.discount_cents if frozen else None,
+        "quote_discount_frozen_cents": (
+            frozen.quote_discount_cents if frozen else None
+        ),
         "tax_cents": frozen.tax_cents if frozen else None,
         "total_cents": frozen.total_cents if frozen else None,
         # The rate's name and percent are kept only once quoted: a
@@ -877,6 +888,7 @@ def search_texts(
 _SUMMARY_COLUMNS = """
     q.id, q.number, q.revision, q.status, q.updated_at, q.issued_on,
     q.valid_until, q.frozen_total_cents, q.tax_rate_id,
+    q.quote_discount_cents, q.quote_discount_percent,
     nullif(q.customer_name, '') AS customer_name
 """
 
@@ -901,7 +913,12 @@ def _summaries(
                 total_cents=(
                     row["frozen_total_cents"]
                     if row["frozen_total_cents"] is not None
-                    else quote_totals(items, tax_percent).total_cents
+                    else quote_totals(
+                        items,
+                        tax_percent,
+                        row["quote_discount_cents"],
+                        _decimal(row["quote_discount_percent"]),
+                    ).total_cents
                 ),
                 issued_on=_date(row["issued_on"]),
                 valid_until=_date(row["valid_until"]),
@@ -948,8 +965,10 @@ def load_quote(
     row = conn.execute(
         """
         SELECT id, business_id, number, revision, status, issued_on,
-               valid_until, notes, tax_rate_id, frozen_items_cents,
-               frozen_discount_cents, frozen_tax_cents, frozen_total_cents,
+               valid_until, notes, tax_rate_id, quote_discount_cents,
+               quote_discount_percent, frozen_items_cents,
+               frozen_discount_cents, frozen_quote_discount_cents,
+               frozen_tax_cents, frozen_total_cents,
                frozen_tax_name, frozen_tax_percent, customer_name,
                customer_email, customer_phone, customer_ext, customer_address,
                frozen_business_name, frozen_business_address,
@@ -984,12 +1003,15 @@ def load_quote(
         notes=row["notes"],
         line_items=_line_items_of(conn, [row["id"]]).get(row["id"], []),
         tax_rate_id=row["tax_rate_id"],
+        quote_discount_cents=row["quote_discount_cents"],
+        quote_discount_percent=_decimal(row["quote_discount_percent"]),
         frozen=(
             None
             if row["frozen_total_cents"] is None
             else QuoteTotals(
                 items_cents=row["frozen_items_cents"],
                 discount_cents=row["frozen_discount_cents"],
+                quote_discount_cents=row["frozen_quote_discount_cents"],
                 tax_cents=row["frozen_tax_cents"],
                 total_cents=row["frozen_total_cents"],
             )

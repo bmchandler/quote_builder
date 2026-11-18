@@ -175,8 +175,9 @@ are worked out with `Decimal` and rounded to the cent where shown.
   picked, and stays in the catalog (decided 2026-11-01; see Future).
   A line copies from an item and keeps no link to it, so changing or
   deleting an item never touches a quote.
-- **Quote**: number, customer (optional), tax rate, date issued, valid-through
-  date, status, notes, and line items.
+- **Quote**: number, customer (optional), tax rate, an optional Quote
+  Discount (an amount or a percent; decided 2026-11-17), date issued,
+  valid-through date, status, notes, and line items.
 - **Line item**: description, quantity, unit (Hour or Each; how the
   quantity reads to the customer, decided 2026-11-16), unit price,
   discount, and whether it's taxed (at the quote's rate; decided
@@ -208,13 +209,34 @@ option, for states that tax such groups differently: it's the case a
 single rate per quote doesn't cover. A quote shows one Tax line; tax
 by part (state, local) is an option, as the parts are kept.
 
-Discounts are per line item, as an amount or a percent (decided
-2026-10-17); a line's tax is worked out on its discounted amount.
-There's no whole-quote discount. A discount can't be more than its
-line. In the form, one Discount field takes either: `10%` is a percent,
-anything else an amount (`5`, `$5.50`); blank or zero is none. A tax
-rate's Percent takes `7.25` or `7.25%`, blank for none (decided
-2026-10-19, for the Tax % a line had then).
+A quote is discounted in one of two ways, never both at once (decided
+2026-11-17; the full reasoning and a worked walkthrough are in
+[CALCULATIONS.md](CALCULATIONS.md)):
+
+- **Line discounts** (decided 2026-10-17), per line item, as an amount
+  or a percent; a line's tax is worked out on its discounted amount. A
+  line discount can't be more than its line.
+- **A Quote Discount** (decided 2026-11-17), one discount on the whole
+  quote, as an amount or a percent, applied before tax: it comes off the
+  taxable and non-taxable parts in proportion to each part's share of
+  the subtotal (the odd split penny going to the taxable side, the
+  customer's favor), and tax falls on what's left of the taxable part. A
+  Quote Discount can't be more than the subtotal.
+
+Only one mode per quote: allowing both would force a whole-quote
+discount onto each line's tax base, with uneven-cent splits and lines
+that no longer add up on their own — a known billing-confusion trap. So
+with a Quote Discount no line carries its own discount, and tax is
+worked out once for the quote as a whole; the app refuses, on Save, to
+use both. The coupon case is still served: use a Quote Discount on that
+quote. With a Quote Discount the lines read plainly (`qty × price =
+amount`), the discount and tax showing once each in the foot.
+
+In the form, a line's Discount field and the Quote Discount field each
+take either style: `10%` is a percent, anything else an amount (`5`,
+`$5.50`); blank or zero is none. A tax rate's Percent takes `7.25` or
+`7.25%`, blank for none (decided 2026-10-19, for the Tax % a line had
+then).
 
 Each line is worked out to the cent on its own (totals.py): quantity ×
 unit price, less the discount, then tax on what's left, each rounded
@@ -231,7 +253,9 @@ part) aren't supported, nor is rounding per invoice (decided
 A draft's totals are worked out from its lines whenever shown, never
 stored. Once a quote is quoted, its figures are frozen (decided
 2026-10-19): each line's amount, discount, and tax (its total is
-their sum), and the foot's totals are stored with it and shown from
+their sum; with a Quote Discount a line's own discount and tax are
+zero, its tax being a whole-quote figure), and the foot's totals (the
+worked-out Quote Discount among them) are stored with it and shown from
 then on, so a later
 change to how totals are worked out never changes what a customer was
 given. A revision starts as a draft, so it's worked out with the rules
@@ -247,9 +271,12 @@ such copy (it prints, when it can, from the business as it is now).
 
 The quote's foot shows totals: line items before discounts (labelled
 "Line Items", for specificity so a customer doesn't take it for
-physical items only), discounts, taxes, and the total. They update as the form is typed in; a line with no
-price yet counts as nothing, and while any line doesn't read, its total
-and the foot show a dash.
+physical items only), then the discount in play — "Discounts" for line
+discounts, "Quote Discount" for a whole-quote one, and neither when
+there's none — then taxes and the total. A discount row shows only for
+the mode in use, so the foot always reads cleanly. They update as the
+form is typed in; a line with no price yet counts as nothing, and while
+any line doesn't read, its total and the foot show a dash.
 
 Quote numbers (decided 2026-10-17) are `Q-` and a random code shaped
 like a phone number, three characters then four: `Q-7KQ-M9XD`. The
@@ -341,7 +368,9 @@ Built (as of 2026-11-01), each with tests:
   customers (customers.py), each a business's, and a quote's own copy
   of its customer's details. Catalog items (catalog.py), each a
   business's.
-- Totals (totals.py): per-line discount and tax, the quote's foot.
+- Totals (totals.py): per-line discount and tax, a whole-quote discount
+  (one discount mode per quote), the quote's foot. The math and its
+  reasoning are documented in [CALCULATIONS.md](CALCULATIONS.md).
 - The screen (app.py), in the native window:
   - The quote list down the left side, always shown beside the quote
     at any window width (never a pop-over; decided 2026-10-19), 350
@@ -488,8 +517,10 @@ Built (as of 2026-11-01), each with tests:
   - On the right: a landing message until a quote is picked; New Quote
     opens a blank form, and clicking a quote in the list opens it. A
     draft opens in the form (description, quantity, unit, unit price,
-    discount, Tax, and notes, with totals updating as you type); Save
-    saves it. Any other status opens read-only.
+    discount, Tax, and notes, a Quote Discount beside the Tax rate, with
+    totals updating as you type); Save saves it, refusing a Quote
+    Discount used alongside a line discount. Any other status opens
+    read-only.
   - Customer on a quote (decided 2026-11-02, replacing a picker tied
     to saved customers): a draft's "Customer", above Tax rate, is Name
     and Phone (with Ext. beside it), then Email and Address, in two
@@ -749,3 +780,7 @@ longer fit by then, or the work before may have changed it.
   than straight to the print dialog (noted 2026-11-16, possible not
   planned): the page asks to print itself on load today; some users may
   prefer to see it first and print when ready.
+- Link [CALCULATIONS.md](CALCULATIONS.md) from the README before
+  release (noted 2026-11-17): the README is still empty, so for now the
+  calculations are referenced from here and from the code; the user
+  wants the tax reasoning reachable from the README once it's written.

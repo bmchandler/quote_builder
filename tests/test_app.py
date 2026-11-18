@@ -494,6 +494,69 @@ async def test_the_line_unit_is_saved_from_the_editor(user, conn):
     assert line.unit == "hour"
 
 
+async def test_quote_discount_shows_in_the_foot(user, conn):
+    rate_725(conn)
+    await new_quote(user)
+    fill_line(user, 1, "Widget", "2", "45")  # $90.00
+    user.find(marker="taxed-1").click()
+    user.find("Add Line").click()
+    fill_line(user, 2, "Consult", "1", "50")  # $50.00, untaxed
+    user.find(marker="quote-discount").type("20")
+
+    # Subtotal $140, taxable $90; $20 off, $12.86 of it on the taxable
+    # side; tax 7.25% × ($90 − $12.86) = $5.59; total ($140 − $20) + $5.59.
+    await eventually(lambda: text(user.find(marker="foot-total")) == "$125.59")
+    assert text(user.find(marker="foot-items")) == "$140.00"
+    assert text(user.find(marker="foot-quote-discount")) == "-$20.00"
+    assert text(user.find(marker="foot-tax")) == "$5.59"
+    await user.should_not_see(marker="foot-discounts")  # the line-discount row
+
+
+async def test_both_discount_modes_are_refused_on_save(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(marker="discount-1").type("10%")
+    user.find(marker="quote-discount").type("10%")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("line discounts or a Quote Discount, not both")
+    assert saved_numbers(conn) == []
+
+
+async def test_read_only_quote_with_a_quote_discount_reads_plainly(user, conn):
+    quote = make_quote(
+        tax_rate_id=rate_725(conn).id,
+        quote_discount_cents=2000,
+        line_items=[
+            LineItem("Widget A", Decimal(2), 4500, taxed=True),  # $90.00
+            LineItem("Widget B", Decimal(3), 3700, taxed=True),  # $111.00
+            LineItem("Consultation", Decimal(1), 5000),  # $50.00, untaxed
+        ],
+    )
+    saved = mark_quoted(conn, quote, ISSUED, VALID_UNTIL)
+    await reload(user)
+    user.find(marker=f"quote-{saved.number}").click()
+
+    # Lines read plainly (no per-line "taxed"/"less"); the discount and
+    # tax show once in the foot. See CALCULATIONS.md for the numbers.
+    await user.should_see("Widget A: 2 ea. × $45.00 = $90.00")
+    assert text(user.find(marker="foot-quote-discount")) == "-$20.00"
+    assert text(user.find(marker="foot-tax")) == "$13.41"
+    assert text(user.find(marker="foot-total")) == "$244.41"
+    await user.should_not_see(marker="foot-discounts")
+
+
+async def test_the_quote_discount_is_saved_from_the_editor(user, conn):
+    await new_quote(user)
+    fill_line(user, 1, "Mow lawn", "1", "45")
+    user.find(marker="quote-discount").type("10%")
+    user.find(kind=ui.button, content="Save").click()
+
+    await user.should_see("Saved Q-")
+    [summary] = list_quotes(conn, BUSINESS)
+    assert load_quote(conn, summary.number).quote_discount_percent == Decimal("10")
+
+
 async def test_an_untaxed_quote_says_so(user, conn):
     saved = mark_quoted(conn, make_quote(), ISSUED, VALID_UNTIL)
     await reload(user)

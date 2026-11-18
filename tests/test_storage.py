@@ -141,6 +141,32 @@ def test_a_lines_unit_is_saved_and_loaded(conn):
     assert [line.unit for line in loaded.line_items] == ["hour", "each"]
 
 
+def test_a_quote_discount_is_saved_and_loaded(conn):
+    quote = make_quote(
+        line_items=[LineItem("Labor", Decimal(2), 4500)],
+        quote_discount_percent=Decimal("10"),
+    )
+    save_new_quote(conn, quote, numbers("Q-7KQ-M9XD"))
+    loaded = load_quote(conn, "Q-7KQ-M9XD")
+    assert loaded.quote_discount_percent == Decimal("10")
+    assert loaded.quote_discount_cents is None
+
+
+def test_a_quote_discount_is_frozen_when_quoted(conn):
+    quote = make_quote(
+        tax_rate_id=lawn_rate(conn),
+        line_items=[LineItem("Widget", Decimal(1), 10000, taxed=True)],
+        quote_discount_cents=2000,
+    )
+    quoted = mark_quoted(conn, quote, ISSUED, VALID_UNTIL, numbers("Q-7KQ-M9XD"))
+    loaded = load_quote(conn, "Q-7KQ-M9XD")
+    assert loaded == quoted
+    # $100 − $20 = $80 taxable; 7.25% = $5.80; total $85.80.
+    assert loaded.frozen.quote_discount_cents == 2000
+    assert loaded.frozen.tax_cents == 580
+    assert loaded.frozen.total_cents == 8580
+
+
 def test_saving_leaves_the_given_quote_alone(conn):
     quote = lawn_quote()
     save_new_quote(conn, quote, numbers("Q-7KQ-M9XD"))
@@ -308,6 +334,7 @@ def test_search_wildcards_match_only_themselves(conn, search):
 LAWN_TOTALS = QuoteTotals(
     items_cents=4500 + 7500 + 1899,
     discount_cents=750 + 200,
+    quote_discount_cents=0,
     tax_cents=123,
     total_cents=4500 + 6750 + 1699 + 123,
 )

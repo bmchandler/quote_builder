@@ -110,29 +110,38 @@ def _lines_rows(quote: Quote) -> str:
         line_totals = shown_line_totals(item, quote.tax_percent)
         qty = format_quantity(item.quantity, item.unit)
         qty_price = f"{qty} × {format_money(item.unit_price_cents)}"
-        if discount := format_discount_detail(
-            item.discount_cents, item.discount_percent, line_totals.discount_cents
-        ):
-            qty_price += f", less {discount}"
-        if item.taxed:
-            # The line's own tax beside "taxed", so a customer can check the
-            # figures add up (no parentheses, to read like the rest).
-            qty_price += f", taxed {format_money(line_totals.tax_cents)}"
+        if quote.has_quote_discount:
+            # A whole-quote discount shows once in the foot, not per line;
+            # the line reads plainly, its amount before any tax.
+            amount = line_totals.net_cents
+        else:
+            if discount := format_discount_detail(
+                item.discount_cents, item.discount_percent, line_totals.discount_cents
+            ):
+                qty_price += f", less {discount}"
+            if item.taxed:
+                # The line's own tax beside "taxed", so a customer can check
+                # the figures add up (no parentheses, to read like the rest).
+                qty_price += f", taxed {format_money(line_totals.tax_cents)}"
+            amount = line_totals.total_cents
         rows.append(
             f"<tr><td>{_esc(item.description)}</td>"
             f"<td>{_esc(qty_price)}</td>"
-            f"<td class='amt'>{format_money(line_totals.total_cents)}</td></tr>"
+            f"<td class='amt'>{format_money(amount)}</td></tr>"
         )
     return "".join(rows)
 
 
 def _totals_rows(quote: Quote) -> str:
     totals = shown_quote_totals(quote)
-    rows = [
-        ("Line Items", totals.items_cents),
-        ("Discounts", -totals.discount_cents),
-        ("Taxes", totals.tax_cents),
-    ]
+    # A discount row shows only for the mode in use (line discounts or a
+    # Quote Discount), so the foot always reads cleanly.
+    rows = [("Line Items", totals.items_cents)]
+    if totals.discount_cents:
+        rows.append(("Discounts", -totals.discount_cents))
+    if totals.quote_discount_cents:
+        rows.append(("Quote Discount", -totals.quote_discount_cents))
+    rows.append(("Taxes", totals.tax_cents))
     body = "".join(
         f"<tr><td>{label}</td><td class='amt'>{format_money(cents)}</td></tr>"
         for label, cents in rows
