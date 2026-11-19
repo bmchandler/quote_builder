@@ -60,3 +60,32 @@ All in `src/quote_builder/`:
 
 Tests in `tests/` mirror these files.
 
+## Licensing
+
+Quote Builder is under the MIT License ([LICENSE.md](LICENSE.md)). The
+native-window stack it depends on is compatible with that, so the app's
+own code stays MIT with no added obligation:
+
+- The runtime graphics stack is weak-copyleft, not strong: WebKitGTK is
+  LGPL-2.1+ with some BSD-2-Clause parts, and GTK, PyGObject, cairo, and
+  pycairo are LGPL (pycairo LGPL-2.1 / MPL dual). Nothing in the runtime
+  path is GPL, so nothing pulls the app under GPL.
+- The Python dependencies are permissive: NiceGUI (MIT), pywebview
+  (BSD-3-Clause), and the FastAPI/Starlette/uvicorn tree (MIT/BSD).
+- LGPL's obligations attach to the LGPL library's own code, not to code
+  that merely uses it. They bite only on modifying the library or
+  bundling it so a user can't relink their own copy. We do neither: the
+  app ships only its own source (installed with uv from git), and the
+  LGPL libraries are the user's own system packages (see
+  [Setup](#setup)), dynamically loaded. So dynamic use of an unmodified
+  system library is the clean case, and the app's source stays MIT.
+- Caveat for later: this stays clean only while we don't ship a combined
+  binary. Bundling WebKitGTK into one distributable (an AppImage, a
+  PyInstaller/Nuitka build) would trigger LGPL's relink provision (keep
+  it dynamically linked, or provide a way to swap it). Such packaging is
+  out of scope for now (REQUIREMENTS.md, Scope), so there's nothing to
+  do until that changes.
+
+License identifiers above are each project's own stated license; confirm
+against their sources before relying on them for a release.
+

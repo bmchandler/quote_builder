@@ -827,7 +827,9 @@ Ordered, though some can overlap:
    separate `dev` branch for development; `main` becomes purely a
    release branch (only ever the newest release's tag, moved by the
    release step). Port pota_logger's automated tooling that aids this
-   workflow and guards against the usual mistakes.
+   workflow and guards against the usual mistakes — including its
+   `RELEASING.md` (the release procedure) and the release script(s)
+   (e.g. `tag_new_version.py`), adapted to this project.
 4. **Compare the two projects** and confirm the development and release
    workflow is nailed down correctly here — that this project's setup
    matches pota_logger's where it should.
