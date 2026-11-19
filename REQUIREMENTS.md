@@ -370,6 +370,80 @@ a small single-user app, and the SQL stays in plain view. The schema is
 in schema.sql, run on every start. Tables are STRICT; money is whole
 cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
+## Versioning
+
+Ported from pota_logger (decided 2026-11-19; the tooling landed the same
+day, the branch cutover follows — see [Path to first
+release](#path-to-first-release), step 3).
+
+- Calendar versioning: a release is named for the date it's made, as
+  `YYYY.M.D` (`2026.10.10`), with `.1`, `.2` for a second or third
+  release the same day (`2026.10.10.1`). The app isn't a library: no
+  code depends on it, so semantic versioning's "is this change
+  breaking?" has no one to answer to, and the date needs no judgment
+  call. A quote's own number and revision (see Data) are unrelated to
+  the app's version.
+- No leading zeros (`2026.1.5`, not `2026.01.05`): Python's version
+  rules (PEP 440) drop them, so `uv version 2026.01.05` writes
+  `2026.1.5`, and the tag must read the same as `pyproject.toml`. The
+  version stays `0.1.0` until the first dated release.
+- A release is made with `uv run tag_new_version.py`
+  ([RELEASING.md](RELEASING.md) has the steps for a person), whether an
+  agent or a person makes it, for every version bump. It takes today's
+  date, with `.1`, `.2` when that's tagged, or a version given, refused
+  if malformed, already tagged, or older than the newest tag. It refuses
+  a tree with changes, a branch other than `dev`, a `main` that `dev`
+  doesn't lead on from, or nothing under `## Unreleased` in CHANGELOG.md,
+  and asks `Tag <version>? [y/N]` before changing anything; on `y` it
+  runs the tests first (they take a while, so a mistake stops at once).
+  Then, always together and in this order:
+  1. `uv version <date>`, which sets the version in `pyproject.toml`
+     and `uv.lock` (checked to read exactly `<date>`).
+  2. Rename CHANGELOG.md's `## Unreleased` heading to `## <date>`, and
+     commit the three files, as `Version <date>`.
+  3. Tag that commit with the same `<date>` (no `v`; a plain tag).
+  4. Move `main` to that commit, only forward (see Branches below).
+  5. `uv version <date>+dev`, committed (`pyproject.toml`, `uv.lock`)
+     on `dev` as `Version <date>+dev`, so dev builds don't report the
+     release's version.
+
+  It never pushes; it prints `git push origin dev main <date>`. An agent
+  making a release still pauses for the operator's go-ahead before
+  running it, as before any commit.
+- Why together: what the app reports as its version (shown in About,
+  app_version.py) comes from `pyproject.toml` (the installed package's
+  metadata), never from the tag. A tag alone leaves the app reporting
+  the last release's version; a version set without a tag names a
+  release no commit can be found by. Done together, the reported version
+  points at exactly one tagged commit.
+- Between releases, `dev`'s version is the last release's plus `+dev`
+  (`2026.10.12+dev`, a PEP 440 local version), and a dev build installed
+  from git reports the commit it was built from too
+  (`2026.10.12+dev.5f820a58`, the first 8 characters), wherever the app
+  reports its version (app_version.py). The commit can't be written in
+  `pyproject.toml` (a commit can't contain its own hash), so it's read
+  when the app runs, from the `direct_url.json` an installer writes for
+  an install from git (PEP 610). A clone run (`uv run`) or an install
+  from a package index has no commit there, so its version is reported
+  as written. PyPI refuses local versions, which never reach it.
+- Branches: `main` only ever points at the newest release's tag, so an
+  install from git without a branch or tag (`uv tool install
+  git+<repo-url>`) gets the newest release, and `uv tool upgrade` the
+  next one. Work goes on `dev`, and releases are made there; `main` is
+  never committed to, only moved forward by `tag_new_version.py`. Tags
+  are for releases only: a dev build is installed by branch (`@dev`,
+  which `uv tool upgrade` follows) or by commit (`@<commit>`, which it
+  doesn't).
+- An installed dev build (its version ends `+dev`) keeps its data in
+  `~/.local/share/quote-builder-dev/` instead of a release's
+  `quote-builder/`, so testing one never touches a release's quotes
+  (data_folder.py). A clone keeps its `data/` either way.
+- `branch_guard.py` (beside `tag_new_version.py`, for developers, not
+  in the package) installs git hooks that refuse a commit on `main`, and
+  a push that would set the remote's `main` to a commit no release tag
+  points at, or delete it. Its install changes only its own line in each
+  hook file (git_hooks.py); see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Status and plan
 
 Built (as of 2026-11-01), each with tests:
@@ -843,6 +917,13 @@ Ordered, though some can overlap:
    workflow and guards against the usual mistakes — including its
    `RELEASING.md` (the release procedure) and the release script(s)
    (e.g. `tag_new_version.py`), adapted to this project.
+
+   Tooling ported 2026-11-19: `tag_new_version.py`, `branch_guard.py`,
+   `src/quote_builder/git_hooks.py`, `RELEASING.md`, the dev-build data
+   folder split (data_folder.py), and the [Versioning](#versioning)
+   section, all with tests. Still to do (the cutover): create `dev`,
+   install the branch guard, move off committing on `main`, and flip
+   CLAUDE.md and DEVELOPMENT.md to the dev/main workflow.
 4. **Compare the two projects** and confirm the development and release
    workflow is nailed down correctly here — that this project's setup
    matches pota_logger's where it should.

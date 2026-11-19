@@ -1,0 +1,176 @@
+import importlib.util
+import subprocess
+import tomllib
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+# The script sits in the project root, outside the package.
+spec = importlib.util.spec_from_file_location(
+    "tag_new_version", Path(__file__).parent.parent / "tag_new_version.py"
+)
+tnv = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tnv)
+
+
+@pytest.mark.parametrize("text", ["2026.10.10", "2026.1.5", "2026.10.10.1", "2026.12.31.12"])
+def test_versions_read(text):
+    assert ".".join(map(str, tnv.parse_version(text))) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("2026.01.05", "no leading zeros"),
+        ("2026.1.05", "no leading zeros"),
+        ("2026.10.10.0", "no leading zeros"),
+        ("v2026.10.10", "no leading zeros"),
+        ("0.2.0", "no leading zeros"),
+        ("2026.10", "no leading zeros"),
+        ("2026.2.30", "isn't a real date"),
+        ("2026.13.1", "isn't a real date"),
+    ],
+)
+def test_versions_refused(text, message):
+    with pytest.raises(ValueError, match=message):
+        tnv.parse_version(text)
+
+
+def test_next_version_is_today():
+    assert tnv.next_version(date(2026, 1, 5), ["2025.12.31"]) == "2026.1.5"
+
+
+def test_next_version_counts_releases_the_same_day():
+    assert tnv.next_version(date(2026, 10, 10), ["2026.10.10"]) == "2026.10.10.1"
+    assert tnv.next_version(date(2026, 10, 10), ["2026.10.10", "2026.10.10.1"]) == "2026.10.10.2"
+
+
+def test_given_version_already_tagged_or_older_is_refused():
+    tags = ["2026.10.10", "2026.10.12"]
+    tnv.check_version("2026.10.12.1", tags)
+    with pytest.raises(ValueError, match="already tagged"):
+        tnv.check_version("2026.10.12", tags)
+    with pytest.raises(ValueError, match="older than the newest tag, 2026.10.12"):
+        tnv.check_version("2026.10.11", tags)
+
+
+CHANGELOG = """# Changelog
+
+## Unreleased
+
+- Something new.
+
+## 2026.1.1
+
+- The first version.
+"""
+
+
+def test_unreleased_changes_stop_at_the_next_heading():
+    assert tnv.unreleased_changes(CHANGELOG) == ["- Something new."]
+    assert tnv.unreleased_changes(CHANGELOG.replace("- Something new.\n", "")) == []
+    assert tnv.unreleased_changes("# Changelog\n\n## 2026.1.1\n\n- The first version.\n") == []
+
+
+def test_released_changelog_names_the_version():
+    assert tnv.released_changelog(CHANGELOG, "2026.10.10") == CHANGELOG.replace(
+        "## Unreleased", "## 2026.10.10"
+    )
+
+
+def git(repo, *args):
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A git repo on dev, with main behind it, and a small uv project, no
+    dependencies.
+    """
+    git(tmp_path, "init", "-q", "-b", "main")
+    git(tmp_path, "config", "user.name", "Test")
+    git(tmp_path, "config", "user.email", "test@example.com")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.13"\ndependencies = []\n'
+    )
+    (tmp_path / ".gitignore").write_text(".venv/\n")
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG)
+    subprocess.run(["uv", "lock", "-q"], cwd=tmp_path, check=True)
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-q", "-m", "Initial Commit")
+    git(tmp_path, "switch", "-q", "-c", "dev")
+    return tmp_path
+
+
+def test_clean_dev_has_no_problems(repo):
+    assert tnv.repo_problems(repo) == []
+    assert tnv.version_tags(repo) == []
+
+
+def test_nothing_unreleased_refused(repo):
+    (repo / "CHANGELOG.md").write_text(CHANGELOG.replace("- Something new.\n", ""))
+    git(repo, "commit", "-q", "-am", "Empty Unreleased")
+    assert tnv.repo_problems(repo) == [
+        "Nothing under ## Unreleased in CHANGELOG.md; note the release's changes there first."
+    ]
+    (repo / "CHANGELOG.md").unlink()
+    git(repo, "commit", "-q", "-am", "No changelog")
+    assert len(tnv.repo_problems(repo)) == 1
+
+
+def test_changes_or_another_branch_refused(repo):
+    (repo / "notes.txt").write_text("x")
+    git(repo, "switch", "-q", "-c", "other")
+    assert tnv.repo_problems(repo) == [
+        "On branch other, not dev.",
+        "The tree has changes; commit or stash them first.",
+    ]
+
+
+def test_main_moved_or_off_on_its_own_refused(repo):
+    git(repo, "switch", "-q", "main")
+    (repo / "notes.txt").write_text("x")
+    git(repo, "add", "notes.txt")
+    git(repo, "commit", "-q", "-m", "On main")
+    git(repo, "switch", "-q", "dev")
+    assert tnv.repo_problems(repo) == ["main isn't behind dev, so it can't move forward to the release."]
+
+
+def version_at(repo, rev):
+    return tomllib.loads(git(repo, "show", f"{rev}:pyproject.toml"))["project"]["version"]
+
+
+def test_release_commits_the_version_and_tags_that_commit(repo):
+    tnv.release("2026.10.10", repo)
+    assert version_at(repo, "2026.10.10") == "2026.10.10"
+    assert 'version = "2026.10.10"' in git(repo, "show", "2026.10.10:uv.lock")
+    assert git(repo, "log", "-1", "--format=%s", "2026.10.10") == "Version 2026.10.10"
+    assert git(repo, "show", "--name-only", "--format=", "2026.10.10").split() == [
+        "CHANGELOG.md",
+        "pyproject.toml",
+        "uv.lock",
+    ]
+    assert (repo / "CHANGELOG.md").read_text() == CHANGELOG.replace("## Unreleased", "## 2026.10.10")
+
+
+def test_release_moves_main_to_the_tag(repo):
+    tnv.release("2026.10.10", repo)
+    assert git(repo, "rev-parse", "main") == git(repo, "rev-parse", "2026.10.10")
+
+
+def test_release_starts_dev_on_the_next_dev_version(repo):
+    tnv.release("2026.10.10", repo)
+    assert git(repo, "branch", "--show-current") == "dev"
+    assert git(repo, "rev-parse", "HEAD~1") == git(repo, "rev-parse", "2026.10.10")
+    assert git(repo, "log", "-1", "--format=%s") == "Version 2026.10.10+dev"
+    assert git(repo, "show", "--name-only", "--format=", "HEAD").split() == ["pyproject.toml", "uv.lock"]
+    with open(repo / "pyproject.toml", "rb") as file:
+        assert tomllib.load(file)["project"]["version"] == "2026.10.10+dev"
+    assert 'version = "2026.10.10+dev"' in (repo / "uv.lock").read_text()
+    # Clean, but with nothing unreleased until the next change is noted.
+    assert len(tnv.repo_problems(repo)) == 1
+    assert tnv.version_tags(repo) == ["2026.10.10"]

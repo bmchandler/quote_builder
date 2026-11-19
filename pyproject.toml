@@ -27,3 +27,6 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-n auto"
+# The release scripts (tag_new_version.py, branch_guard.py) sit in the
+# repo root, so their tests can import them.
+pythonpath = ["."]
