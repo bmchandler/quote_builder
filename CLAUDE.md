@@ -164,8 +164,15 @@ of one: a second copy drifts, and can mask a problem in this file.
 
 ## How we work (this project)
 
-- Branches: still committing on `main`; the `dev`/`main` pattern
-  (above) isn't set up here yet, until the user decides to.
+- Branches: the `dev`/`main` pattern (see portable norms above) is set
+  up (2026-11-19). Work and commit on `dev`, never on `main`; `main`
+  only ever moves forward to the newest release's tag, by the release
+  step (`tag_new_version.py`; see RELEASING.md). The branch guard's
+  hooks enforce this — install them once per clone with `uv run
+  branch_guard.py install` (see DEVELOPMENT.md). The first dated release
+  is still to come, so `main` carries no release tag yet, and can't be
+  pushed until it does (push `dev` freely); see REQUIREMENTS.md,
+  Versioning and Path to first release.
 - UI/UX targets the business user for now, not the customer: what a
   customer sees is settled when building the parts they see.
 - Check screen changes in the browser pane before handing over: a

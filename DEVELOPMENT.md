@@ -23,6 +23,60 @@ From a clone, the database is `data/quotes.db`. Until close to the
 first release, its tables can change at any time: delete it to start
 over.
 
+## Branches
+
+- `main` only ever points at the newest release's tag, so an install
+  from git without a branch or tag gets it. It's never committed to:
+  `tag_new_version.py` moves it forward at each release (see
+  [RELEASING.md](RELEASING.md)). Until the first dated release, `main`
+  carries no release tag yet.
+- `dev` is where work goes, and releases are made. Between releases its
+  version is the last release's plus `+dev` (`2026.10.12+dev`), set by
+  the release script; a build installed from git adds its commit
+  (`2026.10.12+dev.5f820a58`), read when the app runs (`app_version.py`).
+- Tags are for releases only. Testers install a development build by
+  branch or commit instead (see [Development builds](#development-builds)).
+
+If you'll commit, install the branch guard's git hooks once per clone.
+They refuse a commit on `main` and a push that would set the remote's
+`main` to anything but a release:
+
+```bash
+uv run branch_guard.py install
+```
+
+## Development builds
+
+To test what's being worked on (which may not be ready for use),
+install the newest development build from the gitserver:
+
+```bash
+uv tool install "git+ssh://git@gitserver/~/quote_builder.git@dev"
+```
+
+and update it with `uv tool upgrade quote-builder`. Or install one
+commit, which `uv tool upgrade` doesn't move:
+
+```bash
+uv tool install "git+ssh://git@gitserver/~/quote_builder.git@<commit>"
+```
+
+Once the GitHub mirror is up (see REQUIREMENTS.md, Path to first
+release), its URL works the same way, with `@dev` or `@<commit>`. In an
+`ssh://` URL the path starts at the server's root, so `/~/` stands for
+the user's home. Leave off `@dev` for the newest release.
+
+A development build keeps its files in
+`~/.local/share/quote-builder-dev/`, apart from a release's, so testing
+it never touches your real quotes (uninstalling leaves it, too). Only
+one `quote-builder` can be installed at a time: to switch between a
+release and a development build, run the other's install command. To
+try a development build without replacing an installed release:
+
+```bash
+uvx --from "git+ssh://git@gitserver/~/quote_builder.git@dev" quote-builder
+```
+
 ## Tests
 
 ```bash

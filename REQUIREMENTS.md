@@ -372,8 +372,8 @@ cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
 ## Versioning
 
-Ported from pota_logger (decided 2026-11-19; the tooling landed the same
-day, the branch cutover follows — see [Path to first
+Ported from pota_logger (decided 2026-11-19; tooling and the branch
+cutover both landed the same day — see [Path to first
 release](#path-to-first-release), step 3).
 
 - Calendar versioning: a release is named for the date it's made, as
@@ -918,12 +918,12 @@ Ordered, though some can overlap:
    `RELEASING.md` (the release procedure) and the release script(s)
    (e.g. `tag_new_version.py`), adapted to this project.
 
-   Tooling ported 2026-11-19: `tag_new_version.py`, `branch_guard.py`,
+   Done 2026-11-19. Tooling: `tag_new_version.py`, `branch_guard.py`,
    `src/quote_builder/git_hooks.py`, `RELEASING.md`, the dev-build data
    folder split (data_folder.py), and the [Versioning](#versioning)
-   section, all with tests. Still to do (the cutover): create `dev`,
-   install the branch guard, move off committing on `main`, and flip
-   CLAUDE.md and DEVELOPMENT.md to the dev/main workflow.
+   section, all with tests. Cutover: `dev` created from the last `main`
+   commit, the branch guard installed, work now on `dev`, and CLAUDE.md
+   and DEVELOPMENT.md flipped to the dev/main workflow. Next: step 4.
 4. **Compare the two projects** and confirm the development and release
    workflow is nailed down correctly here — that this project's setup
    matches pota_logger's where it should.
