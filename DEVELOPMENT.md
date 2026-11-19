@@ -86,6 +86,18 @@ own code stays MIT with no added obligation:
   out of scope for now (REQUIREMENTS.md, Scope), so there's nothing to
   do until that changes.
 
-License identifiers above are each project's own stated license; confirm
+The main open-source libraries it builds on, with their license and
+project page (license links go to opensource.org):
+
+| Library | License | Project |
+| --- | --- | --- |
+| NiceGUI | [MIT](https://opensource.org/license/mit) | [nicegui.io](https://nicegui.io) |
+| pywebview | [BSD-3-Clause](https://opensource.org/license/bsd-3-clause) | [pywebview.flowrl.com](https://pywebview.flowrl.com) |
+| WebKitGTK | [LGPL-2.1](https://opensource.org/license/lgpl-2-1) (with [BSD-2-Clause](https://opensource.org/license/bsd-2-clause) parts) | [webkitgtk.org](https://webkitgtk.org) |
+| GTK | [LGPL-2.1](https://opensource.org/license/lgpl-2-1) | [gtk.org](https://www.gtk.org) |
+| PyGObject | [LGPL-2.1](https://opensource.org/license/lgpl-2-1) | [pygobject.gnome.org](https://pygobject.gnome.org) |
+| cairo / pycairo | [LGPL-2.1](https://opensource.org/license/lgpl-2-1) | [cairographics.org](https://www.cairographics.org) |
+
+License identifiers here are each project's own stated license; confirm
 against their sources before relying on them for a release.
 

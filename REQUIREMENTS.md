@@ -496,6 +496,19 @@ Built (as of 2026-11-01), each with tests:
     field, case included once spaces are tidied, is refused, with the
     dialog left open: "Jane Doe already exists with these exact
     details". That's the only duplicate check (see Scope).
+  - About (decided 2026-11-19): in Settings' side panel, below
+    Customers and above Back to Quotes, an About button opens, on the
+    right, "About Quote Builder": the one-line description and credit,
+    then "Version:", "GitHub Repo:" (a link), and "License:" (MIT, a
+    link to opensource.org), and where this install keeps its data. The
+    repo and license links open the system browser (as the printout
+    does), not the native window's webview. The libraries the app
+    builds on, with their licenses, are listed in DEVELOPMENT.md
+    (Licensing), not on this screen. The version (app_version.py)
+    reports `0.1.0` until the first dated release, and
+    `<release>+dev.<commit>` on a dev build installed from git; the
+    reader is built ahead of the release tooling (see Path to first
+    release, step 3) and reports a plain version until then.
   - Add from catalog (decided 2026-11-01): once the business has an
     item, a field beside a draft's Add Line. Typing narrows the items
     by description, price, or unit, each shown as its description with

@@ -11,6 +11,7 @@ from nicegui import events, ui
 from nicegui.testing.user_simulation import user_simulation
 
 from quote_builder.app import quote_page, short_date
+from quote_builder.app_version import app_version
 from quote_builder.business import Business, TaxPart, TaxRate
 from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
@@ -3297,3 +3298,19 @@ async def test_a_draft_tints_its_customer_when_it_matches(user, conn):
     assert not tinted(user, "quote-customer-name")
     user.find(marker="quote-customer-email").clear()  # no longer holds it
     await eventually(lambda: not tinted(user, "quote-customer-email"))
+
+
+async def open_about(user):
+    await open_settings(user)
+    user.find(marker="about").click()
+    await user.should_see(marker="about-version")
+
+
+async def test_about_shows_version_repo_and_license(user):
+    await open_about(user)
+    await user.should_see("Version:")
+    await user.should_see(app_version())
+    await user.should_see("GitHub Repo:")
+    await user.should_see(marker="about-repo")  # repo link (opens the system browser)
+    await user.should_see("License:")
+    await user.should_see(marker="about-license")  # MIT link (opens the system browser)

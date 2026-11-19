@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 from nicegui import ui
 
+from quote_builder.app_version import app_version, package_summary
 from quote_builder.business import Business, TaxPart, TaxRate, check_tax_rate
 from quote_builder.catalog import CatalogItem, check_catalog_item
 from quote_builder.customers import (
@@ -226,6 +227,16 @@ def quote_page(
 
         async def open_customers() -> None:
             await open_list(customers_view)
+
+        async def open_about() -> None:
+            """Show the About view on the right, from Settings."""
+            nonlocal editor, list_open
+            if await may_leave():
+                editor = None
+                list_open = True
+                body.clear()
+                with body:
+                    about_view()
 
         async def open_settings() -> None:
             """Settings takes over the side panel, opening on the business
@@ -488,6 +499,9 @@ def quote_page(
                 .props("flat no-caps")
                 .mark("customers")
             )
+            ui.button("About", icon="info", on_click=open_about).props(
+                "flat no-caps"
+            ).mark("about")
             # Where Settings was, so one spot opens and closes it.
             ui.button(
                 "Back to Quotes", icon="arrow_back", on_click=back_to_quotes
@@ -652,6 +666,40 @@ def landing() -> None:
     ui.label("Pick a quote on the left, or start a new one.").classes(
         "text-grey-7"
     )
+
+
+CREDIT = "Created by Brian M. Chandler."
+REPO_URL = "https://github.com/bmchandler/quote_builder"
+MIT_URL = "https://opensource.org/license/mit"
+
+
+def _about_link(text: str, url: str, marker: str) -> None:
+    """A link in About: a flat button that opens the system browser. Not
+    ui.link, which would navigate the native window's own webview; this
+    opens the system browser, as the printout does."""
+    ui.button(text, on_click=lambda: webbrowser.open(url)).props(
+        "flat no-caps dense"
+    ).classes("text-primary px-1 normal-case").mark(marker)
+
+
+def about_view() -> None:
+    """The About view (opened from Settings): the app, its version, repo,
+    and license. The libraries it builds on are in DEVELOPMENT.md."""
+    ui.label("About Quote Builder").classes("text-h6").mark("heading")
+    with ui.column().classes("gap-1"):
+        ui.label(package_summary()).classes("text-grey-8")
+        ui.label(CREDIT).classes("text-grey-8")
+    with ui.column().classes("gap-1"):
+        with ui.row().classes("items-center gap-1"):
+            ui.label("Version:")
+            ui.label(app_version()).mark("about-version")
+        with ui.row().classes("items-center gap-1"):
+            ui.label("GitHub Repo:")
+            _about_link(REPO_URL, REPO_URL, "about-repo")
+        with ui.row().classes("items-center gap-1"):
+            ui.label("License:")
+            _about_link("MIT", MIT_URL, "about-license")
+    ui.label(f"Your data: {data_folder() / 'quotes.db'}").classes("text-grey-8")
 
 
 def business_settings(
