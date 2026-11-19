@@ -812,6 +812,14 @@ Ordered, though some can overlap:
    terse and user-facing (developer material stays in the developer
    docs). Link [CALCULATIONS.md](CALCULATIONS.md) from it (this folds in
    the Later-polish item below).
+
+   Drafted 2026-11-19: `README.md` (terse front door, links
+   CALCULATIONS.md), `LICENSE.md` (MIT), and a `CHANGELOG.md` stub. The
+   install block points at `github.com/bmchandler/quote_builder`, which
+   only goes live at step 5 (wire up GitHub); a screenshot is still to
+   be added. The two apt lines (Debian 13 / LMDE, and Ubuntu 24.04+ /
+   Mint 22+) share the same package names now that Ubuntu 24.04 ships
+   `libgirepository-2.0-dev`; keep DEVELOPMENT.md's line in step.
 2. **Last double-checks and polish** before preparing the release: a
    pass over wording, the full test suite, and anything in Later polish
    worth pulling in first.
