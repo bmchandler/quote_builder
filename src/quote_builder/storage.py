@@ -31,6 +31,33 @@ from quote_builder.totals import freeze, quote_totals
 
 SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
 
+# The schema is versioned with PRAGMA user_version. schema.sql is the
+# latest schema: it builds a fresh database, which is then stamped at
+# SCHEMA_VERSION, and by CREATE TABLE IF NOT EXISTS it adds any new tables
+# to an existing one. What it can't add to a table already there (a new
+# column, a changed constraint), the migrations do: _MIGRATIONS[v] brings
+# a database from version v-1 to v. When a schema.sql change needs one,
+# add the migration and bump SCHEMA_VERSION in the same change. Version 0
+# is the first release's schema (2026.11.20). See REQUIREMENTS.md,
+# Storage.
+SCHEMA_VERSION = 1
+
+
+class DatabaseTooNew(Exception):
+    """The database was written by a newer version of the app."""
+
+
+def _migrate_to_1(conn: sqlite3.Connection) -> None:
+    # A throwaway column, added only to exercise the migration path (see
+    # REQUIREMENTS.md, Storage). No app code reads it; a later migration
+    # can drop it.
+    conn.execute("ALTER TABLE businesses ADD COLUMN probe TEXT NOT NULL DEFAULT ''")
+
+
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    1: _migrate_to_1,
+}
+
 # With 34 billion codes, a second clash in a row means something's wrong.
 MAX_NUMBER_TRIES = 5
 
@@ -48,17 +75,49 @@ class NotExtendable(Exception):
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
-    """Open the database, creating its tables if needed."""
+    """Open the database, creating or migrating its tables as needed."""
     # Autocommit while setting up: PRAGMA foreign_keys does nothing inside
     # a transaction. It's off by default, and only holds per connection.
     conn = sqlite3.connect(path, autocommit=True)
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
+    _ensure_schema(conn)
     # From here on, `with conn:` wraps a transaction: commit on success,
     # roll back on an exception.
     conn.autocommit = False
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Build a new database at the current version, or migrate an older
+    one up to it. Runs in autocommit (the caller's state), migration steps
+    each in their own transaction so a failure leaves the version behind."""
+    # A database with no `businesses` table is new; one that has it from an
+    # earlier release carries its own user_version (0 for the first).
+    fresh = (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'businesses'"
+        ).fetchone()
+        is None
+    )
+    conn.executescript(SCHEMA)
+    if fresh:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        return
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise DatabaseTooNew(
+            f"database is at schema version {version}, but this app knows "
+            f"only version {SCHEMA_VERSION}; update the app to open it."
+        )
+    conn.autocommit = False
+    for target in range(version + 1, SCHEMA_VERSION + 1):
+        # The change and its version stamp commit together, so a failed
+        # migration rolls back both and the database keeps its old version.
+        with conn:
+            _MIGRATIONS[target](conn)
+            conn.execute(f"PRAGMA user_version = {target}")
+    conn.autocommit = True
 
 
 class NameNeeded(Exception):

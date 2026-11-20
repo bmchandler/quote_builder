@@ -28,7 +28,11 @@ CREATE TABLE IF NOT EXISTS businesses (
     email      TEXT    NOT NULL DEFAULT '',
     website    TEXT    NOT NULL DEFAULT '',
     -- A single free-text block, as typed, line breaks and all.
-    terms      TEXT    NOT NULL DEFAULT ''
+    terms      TEXT    NOT NULL DEFAULT '',
+    -- Throwaway column, here only to exercise the migration framework
+    -- (storage.py, _MIGRATIONS; REQUIREMENTS.md, Storage). No app code
+    -- reads it; a later migration can drop it.
+    probe      TEXT    NOT NULL DEFAULT ''
 ) STRICT;
 
 -- A business's sales tax rates, each the sum of its parts.

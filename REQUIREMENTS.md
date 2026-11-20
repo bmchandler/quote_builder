@@ -370,6 +370,23 @@ a small single-user app, and the SQL stays in plain view. The schema is
 in schema.sql, run on every start. Tables are STRICT; money is whole
 cents (INTEGER), exact decimals TEXT, dates ISO 8601 TEXT.
 
+Schema changes are versioned with SQLite's `PRAGMA user_version`
+(decided 2026-11-20; storage.py). schema.sql is the latest schema: it
+builds a fresh database, stamped at the current version, and by `CREATE
+TABLE IF NOT EXISTS` it also adds any new table to an existing database
+for free. A change to a table already there — a new column, a changed
+constraint — can't come that way, so it gets a migration: `_MIGRATIONS[v]`
+brings a database from version v-1 to v, the migrations between its
+version and the current one run in order when it's opened, each with its
+version stamp in one transaction, so a failed migration leaves the old
+version behind. Version 0 is the first release's schema (2026.11.20). A
+database written by a newer app than the one opening it is refused
+(`DatabaseTooNew`), not guessed at. Before the first release this wasn't
+needed — the rule was "delete the database", and it retires here (see
+[Path to first release](#path-to-first-release), step 9). `probe` on
+`businesses` is a throwaway column, read by nothing, added to exercise
+the framework end to end; a later migration can drop it.
+
 ## Versioning
 
 Ported from pota_logger (decided 2026-11-19; tooling and the branch
@@ -941,6 +958,14 @@ Ordered, though some can overlap:
    This is the main thing to learn from the exercise; until now the rule
    has been "delete the DB" (no migrations before release, see CLAUDE.md
    and [Storage](#storage)), and this is where that rule retires.
+
+   Underway 2026-11-20: a phase-1 smoke test confirmed the failure mode
+   (a column added to an existing table isn't created by `CREATE TABLE IF
+   NOT EXISTS`, so the app hits `no such column`), and the migration
+   framework is built (approach A, `PRAGMA user_version`; see
+   [Storage](#storage)), exercised by a throwaway `probe` column on
+   `businesses`. Still to do: run it through a real release and a
+   version-to-version update (steps 7 and 8).
 
 ## Later polish
 

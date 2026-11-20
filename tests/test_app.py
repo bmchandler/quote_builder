@@ -1,6 +1,8 @@
 """The page, driven by NiceGUI's simulated user: no browser or window."""
 
 import asyncio
+import re
+import sqlite3
 import time
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -17,6 +19,8 @@ from quote_builder.catalog import CatalogItem
 from quote_builder.customers import Customer
 from quote_builder.quotes import LineItem, Quote, Status, revision_draft
 from quote_builder.storage import (
+    SCHEMA,
+    SCHEMA_VERSION,
     add_business,
     add_customer,
     connect,
@@ -64,6 +68,30 @@ async def user(conn):
     async with user_simulation(root=quote_page(conn, today=lambda: TODAY)) as user:
         await user.open("/")
         yield user
+
+
+async def test_app_opens_a_migrated_first_release_database(tmp_path):
+    # A database in the first release's state: the current schema without
+    # migration 1's column, at version 0, with a business already saved.
+    path = tmp_path / "quotes.db"
+    v0 = re.sub(
+        r",\s*(?:--[^\n]*\n\s*)*probe\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+''", "", SCHEMA
+    )
+    old = sqlite3.connect(path, autocommit=True)
+    old.executescript(v0)
+    old.execute("INSERT INTO businesses (name, valid_days) VALUES ('Acme', 30)")
+    old.execute("PRAGMA user_version = 0")
+    old.close()
+
+    # The app opens it through connect(), which migrates it first.
+    conn = connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    try:
+        async with user_simulation(root=quote_page(conn, today=lambda: TODAY)) as user:
+            await user.open("/")
+            await user.should_see("New Quote")
+    finally:
+        conn.close()
 
 
 def fill_line(user, n, description, quantity, price):

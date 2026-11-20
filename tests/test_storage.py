@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -21,6 +22,9 @@ from quote_builder.quotes import (
 )
 from quote_builder.storage import (
     MAX_NUMBER_TRIES,
+    SCHEMA,
+    SCHEMA_VERSION,
+    DatabaseTooNew,
     NameNeeded,
     NoFreeQuoteNumber,
     NotADraft,
@@ -111,6 +115,84 @@ def lawn_rate(conn):
 def test_connect_twice_to_the_same_file(tmp_path):
     connect(tmp_path / "quotes.db").close()
     connect(tmp_path / "quotes.db").close()
+
+
+def _columns(conn, table):
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
+def _schema(conn):
+    """The effective schema: each table's columns, by name, type, nullability
+    and default -- robust to how the text was written (inline vs ALTER)."""
+    tables = sorted(
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    )
+    return {
+        table: [tuple(row) for row in conn.execute(f"PRAGMA table_info({table})")]
+        for table in tables
+    }
+
+
+def _first_release_db(path):
+    """Create a database in the first release's state: the current schema
+    without migration 1's column, stamped at version 0. The column is
+    removed from the schema rather than dropped with ALTER TABLE, which
+    SQLite refuses on a table whose definition carries comments."""
+    v0 = re.sub(
+        r",\s*(?:--[^\n]*\n\s*)*probe\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+''",
+        "",
+        SCHEMA,
+    )
+    assert "probe" not in v0, "failed to strip the probe column"
+    conn = sqlite3.connect(path, autocommit=True)
+    conn.executescript(v0)
+    conn.execute("PRAGMA user_version = 0")
+    return conn
+
+
+def test_fresh_database_is_stamped_at_current_version(tmp_path):
+    conn = connect(tmp_path / "quotes.db")
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert "probe" in _columns(conn, "businesses")
+
+
+def test_existing_database_is_migrated_keeping_its_data(tmp_path):
+    path = tmp_path / "quotes.db"
+    old = _first_release_db(path)
+    old.execute(
+        "INSERT INTO businesses (name, valid_days) VALUES (?, ?)", ("Acme", 45)
+    )
+    old.close()
+
+    conn = connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    row = conn.execute("SELECT name, valid_days, probe FROM businesses").fetchone()
+    assert (row["name"], row["valid_days"], row["probe"]) == ("Acme", 45, "")
+
+
+def test_migrated_database_matches_a_fresh_one(tmp_path):
+    # Guards schema.sql and the migrations against drift: a database brought
+    # up from version 0 must end with exactly a fresh one's schema.
+    fresh = connect(tmp_path / "fresh.db")
+
+    _first_release_db(tmp_path / "old.db").close()
+    migrated = connect(tmp_path / "old.db")
+
+    assert _schema(migrated) == _schema(fresh)
+
+
+def test_database_from_a_newer_version_is_refused(tmp_path):
+    path = tmp_path / "quotes.db"
+    connect(path).close()
+    ahead = sqlite3.connect(path, autocommit=True)
+    ahead.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    ahead.close()
+    with pytest.raises(DatabaseTooNew):
+        connect(path)
 
 
 def test_foreign_keys_are_enforced(conn):

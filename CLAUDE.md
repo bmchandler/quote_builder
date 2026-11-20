@@ -191,9 +191,11 @@ of one: a second copy drifts, and can mask a problem in this file.
   `Nov 18, 2026`; a quote's last day is "Valid through" (REQUIREMENTS.md
   explains why); search places say "Line Item 3", not "Line 3";
   "customer", never "client".
-- Until close to the first release, the database schema and data files
-  can change freely: no migrations, and no need to keep existing data
-  in `data/`, unless the user says they're keeping hand-test data.
+- The first release has shipped (2026.11.20), so a schema change now goes
+  through a migration (REQUIREMENTS.md, [Storage](#storage); storage.py,
+  `_MIGRATIONS`). In dev you can still delete `data/` to start an
+  unreleased database over rather than migrate it mid-change; keep
+  existing `data/` only when the user says they're keeping hand-test data.
 
 ## Code notes
 
