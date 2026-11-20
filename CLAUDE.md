@@ -169,10 +169,10 @@ of one: a second copy drifts, and can mask a problem in this file.
   only ever moves forward to the newest release's tag, by the release
   step (`tag_new_version.py`; see RELEASING.md). The branch guard's
   hooks enforce this — install them once per clone with `uv run
-  branch_guard.py install` (see DEVELOPMENT.md). The first dated release
-  is still to come, so `main` carries no release tag yet, and can't be
-  pushed until it does (push `dev` freely); see REQUIREMENTS.md,
-  Versioning and Path to first release.
+  branch_guard.py install` (see DEVELOPMENT.md). `main` now carries the
+  newest release's tag, moved there by the release step; push `dev` and
+  releases freely, but the hooks refuse pushing `main` to a non-release.
+  See REQUIREMENTS.md, Versioning and Path to first release.
 - UI/UX targets the business user for now, not the customer: what a
   customer sees is settled when building the parts they see.
 - Check screen changes in the browser pane before handing over: a

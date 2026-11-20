@@ -49,8 +49,10 @@ Future (not now):
 - Turning a quote into an invoice.
 - Quote templates.
 - CSV export.
-- Printing a quote, and exporting it as a PDF (put off until much
-  later, decided 2026-10-17; now underway, see Status and plan). The
+- Printing a quote, and exporting it as a PDF — built, not future
+  (put off until much later, decided 2026-10-17; built 2026-11-16, see
+  Status and plan and the Printout screen item). The design is kept
+  here as the record of how the printout works. The
   printout opens as its own page in the user's default browser, where
   Print → Save as PDF gives a PDF with no library and no licensing
   (decided 2026-11-16, from a spike; the native window can't print on
@@ -411,8 +413,7 @@ release](#path-to-first-release), step 3).
   the app's version.
 - No leading zeros (`2026.1.5`, not `2026.01.05`): Python's version
   rules (PEP 440) drop them, so `uv version 2026.01.05` writes
-  `2026.1.5`, and the tag must read the same as `pyproject.toml`. The
-  version stays `0.1.0` until the first dated release.
+  `2026.1.5`, and the tag must read the same as `pyproject.toml`.
 - A release is made with `uv run tag_new_version.py`
   ([RELEASING.md](RELEASING.md) has the steps for a person), whether an
   agent or a person makes it, for every version bump. It takes today's
@@ -605,10 +606,8 @@ Built (as of 2026-11-01), each with tests:
     does), not the native window's webview. The libraries the app
     builds on, with their licenses, are listed in DEVELOPMENT.md
     (Licensing), not on this screen. The version (app_version.py)
-    reports `0.1.0` until the first dated release, and
-    `<release>+dev.<commit>` on a dev build installed from git; the
-    reader is built ahead of the release tooling (see Path to first
-    release, step 3) and reports a plain version until then.
+    reports the release's dated version (e.g. `2026.11.20.2`), or
+    `<release>+dev.<commit>` on a dev build installed from git.
   - Add from catalog (decided 2026-11-01): once the business has an
     item, a field beside a draft's Add Line. Typing narrows the items
     by description, price, or unit, each shown as its description with
@@ -857,11 +856,13 @@ Built (as of 2026-11-01), each with tests:
     stale version is plain at a glance. The banner replaced the "Open
     Draft R2" button an older version had: both went to the newest.
 
-Next: printing, for a production release, is underway (started
-2026-11-16). The on-screen app was feature-complete after duplicating
-(2026-11-16); printing is the largest piece left. Duplicating had been
-deferred to Future on 2026-11-11, then brought back on 2026-11-16 to
-round off the non-print work first.
+Released 2026-11-20 as `2026.11.20` (then `2026.11.20.1` and `.2`; see
+[Path to first release](#path-to-first-release)). The on-screen app was
+feature-complete after duplicating (2026-11-16), and printing — the last
+large piece — landed the same day; the first release and the post-release
+migration exercise followed. Printing's own history is below.
+Duplicating had been deferred to Future on 2026-11-11, then brought back
+on 2026-11-16 to round off the non-print work first.
 
 The print path (decided 2026-11-16, from a spike): the printout opens
 in the user's default browser as its own page, where Print → Save as
@@ -904,18 +905,24 @@ proves too loose.
 
 ## Path to first release
 
-The roadmap to a first release (an MVP / 1.0), captured 2026-11-18. The
-aim is to have something releasable to show at a meetup (the next is
-2026-11-19 evening; more follow, so the date isn't hard-committed), and
-— just as important — to **go through a post-release change for real**,
-to learn what updating the app and an existing user's database will be
-like once people already have data. The git and release mechanics follow
-what worked on the **pota_logger** project (also a `uv` project); part
-of this work is comparing the two and porting pota_logger's setup and
-its automation here, not reinventing it.
+Done 2026-11-20: all nine steps below are complete — released as
+`2026.11.20`, install verified, the release procedure exercised twice
+(`2026.11.20.1`, `.2`), and the update path proven end to end with a real
+migration on existing data (step 9). The section is kept as the record of
+how it went.
 
-Today this repo still commits on `main` (see CLAUDE.md, "How we work");
-the dev/release split below is what changes that.
+The roadmap to the first release (an MVP / 1.0), captured 2026-11-18. The
+aim was something releasable to show at a meetup and — just as important
+— to **go through a post-release change for real**, to learn what
+updating the app and an existing user's database is like once people have
+data. The git and release mechanics follow what worked on the
+**pota_logger** project (also a `uv` project); part of the work was
+comparing the two and porting pota_logger's setup and automation here,
+not reinventing it.
+
+The repo committed on `main` until the dev/release split below (step 3);
+work and releases are now on `dev`, with `main` the release pointer (see
+CLAUDE.md, "How we work").
 
 Ordered, though some can overlap:
 

@@ -19,17 +19,16 @@ on most GNOME and Cinnamon desktops.
 uv run quote-builder
 ```
 
-From a clone, the database is `data/quotes.db`. Until close to the
-first release, its tables can change at any time: delete it to start
-over.
+From a clone, the database is `data/quotes.db`. A released schema change
+migrates an existing database (see REQUIREMENTS.md, Storage); in dev you
+can still delete `data/` to start an unreleased database over.
 
 ## Branches
 
 - `main` only ever points at the newest release's tag, so an install
   from git without a branch or tag gets it. It's never committed to:
   `tag_new_version.py` moves it forward at each release (see
-  [RELEASING.md](RELEASING.md)). Until the first dated release, `main`
-  carries no release tag yet.
+  [RELEASING.md](RELEASING.md)).
 - `dev` is where work goes, and releases are made. Between releases its
   version is the last release's plus `+dev` (`2026.10.12+dev`), set by
   the release script; a build installed from git adds its commit

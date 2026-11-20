@@ -1,10 +1,18 @@
 # Changelog
 
-What changed in each release, newest first. Changes not released yet are
-under Unreleased.
+What changed in each release, newest first. Versions are dates
+(`YYYY.M.D`; see RELEASING.md). Changes not released yet are under
+Unreleased.
 
-(The version scheme is set when the release methodology is ported from
-pota_logger; see REQUIREMENTS.md, "Path to first release".)
+## Unreleased
+
+### Changed
+
+- Documentation updated after the first release: the README explains that
+  upgrading migrates your data in place (an interrupted upgrade leaves it
+  as it was), and the developer docs no longer describe the first
+  release, release tags, printing, or the release roadmap as still
+  pending.
 
 ## 2026.11.20.2
 
