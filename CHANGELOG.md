@@ -4,6 +4,12 @@ What changed in each release, newest first. Versions are dates
 (`YYYY.M.D`; see RELEASING.md). Changes not released yet are under
 Unreleased.
 
+## Unreleased
+
+### Added
+
+- A screenshot in the README, showing a quote being edited.
+
 ## 2026.11.20.3
 
 ### Changed

@@ -3,6 +3,8 @@
 A simple desktop app for building price quotes to give to customers.
 Created by Brian M. Chandler.
 
+![Quote Builder: editing a quote, with the quote list on the left](docs/images/screenshot.png)
+
 Quote Builder is for micro businesses and solo consultants — odd
 software jobs, yard work, house cleaning, and the like. It runs as a
 native desktop window on Linux, stores everything locally in a single
