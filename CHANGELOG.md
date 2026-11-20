@@ -6,6 +6,14 @@ under Unreleased.
 (The version scheme is set when the release methodology is ported from
 pota_logger; see REQUIREMENTS.md, "Path to first release".)
 
+## Unreleased
+
+### Changed
+
+- Dropped the throwaway `probe` column added in 2026.11.20.1, now that it
+  has served its purpose, exercising the table-rebuild migration path.
+  Your data migrates automatically on update, as before.
+
 ## 2026.11.20.1
 
 ### Changed
