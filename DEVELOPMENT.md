@@ -48,23 +48,35 @@ uv run branch_guard.py install
 ## Development builds
 
 To test what's being worked on (which may not be ready for use),
-install the newest development build from the gitserver:
+install the newest development build:
 
 ```bash
-uv tool install "git+ssh://git@gitserver/~/quote_builder.git@dev"
+uv tool install "git+https://github.com/bmchandler/quote_builder@dev"
 ```
 
 and update it with `uv tool upgrade quote-builder`. Or install one
 commit, which `uv tool upgrade` doesn't move:
 
 ```bash
+uv tool install "git+https://github.com/bmchandler/quote_builder@<commit>"
+```
+
+From a git server of your own over SSH, use its URL instead, here for a
+server named `gitserver` with the repository in its `git` user's home:
+
+```bash
+uv tool install "git+ssh://git@gitserver/~/quote_builder.git@dev"
+```
+
+```bash
 uv tool install "git+ssh://git@gitserver/~/quote_builder.git@<commit>"
 ```
 
-Once the GitHub mirror is up (see REQUIREMENTS.md, Path to first
-release), its URL works the same way, with `@dev` or `@<commit>`. In an
-`ssh://` URL the path starts at the server's root, so `/~/` stands for
-the user's home. Leave off `@dev` for the newest release.
+Leave off `@dev` for the newest release. In an `ssh://` URL the path
+starts at the server's root, so `/~/` stands for the user's home (or
+give the full path, like `/home/git/quote_builder.git`). Git's short
+form, `git@gitserver:quote_builder.git`, isn't a URL, so uv doesn't
+take it.
 
 A development build keeps its files in
 `~/.local/share/quote-builder-dev/`, apart from a release's, so testing
@@ -74,7 +86,7 @@ release and a development build, run the other's install command. To
 try a development build without replacing an installed release:
 
 ```bash
-uvx --from "git+ssh://git@gitserver/~/quote_builder.git@dev" quote-builder
+uvx --from "git+https://github.com/bmchandler/quote_builder@dev" quote-builder
 ```
 
 ## Tests
