@@ -4,6 +4,7 @@ All SQL lives here and in schema.sql; the rest of the app works with
 the dataclasses in quotes.py and business.py.
 """
 
+import shutil
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
@@ -123,7 +124,7 @@ def connect(path: Path | str) -> sqlite3.Connection:
     # Autocommit while setting up: PRAGMA foreign_keys does nothing inside
     # a transaction, and migrations toggle it around a table rebuild.
     conn = sqlite3.connect(path, autocommit=True)
-    _ensure_schema(conn)  # leaves foreign keys on
+    _ensure_schema(conn, path)  # leaves foreign keys on
     # From here on, `with conn:` wraps a transaction: commit on success,
     # roll back on an exception.
     conn.autocommit = False
@@ -131,9 +132,10 @@ def connect(path: Path | str) -> sqlite3.Connection:
     return conn
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
+def _ensure_schema(conn: sqlite3.Connection, path: Path | str) -> None:
     """Build a new database at the current version, or migrate an older one
-    up to it. Runs in autocommit; leaves foreign keys on (per connection)."""
+    up to it, copying it aside first. Runs in autocommit; leaves foreign keys
+    on (per connection)."""
     # A database with no `businesses` table is new; one that has it from an
     # earlier release carries its own user_version (0 for the first).
     fresh = (
@@ -142,19 +144,35 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         ).fetchone()
         is None
     )
-    conn.executescript(SCHEMA)
     if fresh:
+        conn.executescript(SCHEMA)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-    else:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version > SCHEMA_VERSION:
-            raise DatabaseTooNew(
-                f"database is at schema version {version}, but this app knows "
-                f"only version {SCHEMA_VERSION}; update the app to open it."
-            )
-        if version < SCHEMA_VERSION:
-            _migrate(conn, version)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise DatabaseTooNew(
+            f"database is at schema version {version}, but this app knows "
+            f"only version {SCHEMA_VERSION}; update the app to open it."
+        )
+    if version < SCHEMA_VERSION:
+        # Back up before any change, so a bad upgrade can be undone.
+        _backup(path, version)
+    conn.executescript(SCHEMA)  # adds any new tables to the existing database
+    if version < SCHEMA_VERSION:
+        _migrate(conn, version)
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _backup(path: Path | str, version: int) -> None:
+    """Copy the database file aside before it's migrated, so a user whose
+    upgrade goes wrong can restore it by copying the backup back. A timestamp
+    keeps each one; skipped for an in-memory database (nothing on disk)."""
+    source = Path(path)
+    if str(path) == ":memory:" or not source.exists():
+        return
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    shutil.copy2(source, source.with_name(f"{source.name}.backup-v{version}-{stamp}"))
 
 
 def _migrate(conn: sqlite3.Connection, version: int) -> None:

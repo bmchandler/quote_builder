@@ -220,6 +220,30 @@ def test_database_from_a_newer_version_is_refused(tmp_path):
         connect(path)
 
 
+def test_migrating_backs_up_the_database_first(tmp_path):
+    path = tmp_path / "quotes.db"
+    old = _first_release_db(path)
+    old.execute("INSERT INTO businesses (name) VALUES ('Acme')")
+    old.close()
+
+    connect(path).close()
+
+    backups = list(tmp_path.glob("quotes.db.backup-*"))
+    assert len(backups) == 1
+    # The backup is the pre-migration database: version 0, holding the data.
+    bak = sqlite3.connect(backups[0], autocommit=True)
+    assert bak.execute("PRAGMA user_version").fetchone()[0] == 0
+    assert bak.execute("SELECT name FROM businesses").fetchone()[0] == "Acme"
+    bak.close()
+
+
+def test_a_database_that_needs_no_migration_is_not_backed_up(tmp_path):
+    path = tmp_path / "quotes.db"
+    connect(path).close()  # fresh: created at the current version
+    connect(path).close()  # already current: no migration to run
+    assert list(tmp_path.glob("*.backup-*")) == []
+
+
 def test_foreign_keys_are_enforced(conn):
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 

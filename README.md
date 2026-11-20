@@ -137,10 +137,12 @@ folder.
 
 Your quotes live in one SQLite file, `quotes.db`, in
 `~/.local/share/quote-builder/` (or `$XDG_DATA_HOME/quote-builder/`
-when that's set). Upgrading the app updates this file to the new
-version in place, keeping your quotes; an interrupted upgrade leaves it
-as it was. Uninstalling leaves the file too. Back it up to be safe, and
-delete the folder to remove your quotes.
+when that's set). Upgrading the app updates this file to the new version
+in place, keeping your quotes, and saves a copy beside it first
+(`quotes.db.backup-…`) in case anything goes wrong; an interrupted
+upgrade leaves the file as it was. Uninstalling leaves the file too.
+Back it up to be safe, and delete the folder (backups included) to
+remove your quotes.
 
 ## Status
 

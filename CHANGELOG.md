@@ -4,6 +4,13 @@ What changed in each release, newest first. Versions are dates
 (`YYYY.M.D`; see RELEASING.md). Changes not released yet are under
 Unreleased.
 
+## Unreleased
+
+### Added
+
+- The app now copies your database aside before an update migrates it
+  (`quotes.db.backup-…` beside it), so a bad upgrade can be undone.
+
 ## 2026.11.20.4
 
 ### Added

@@ -398,6 +398,15 @@ column exercised the framework end to end: migration 1 added it (an easy
 `ADD COLUMN`) and migration 2 dropped it (the rebuild), leaving the
 schema where it started.
 
+Before running any migration, the database file is copied aside first
+(`_backup`, decided 2026-11-20): a timestamped `quotes.db.backup-v<from>-…`
+beside it, so a user whose upgrade goes wrong can restore it by copying
+the backup back. A migration that fails already rolls back (it's one
+transaction), so the copy guards against the rarer case of a migration
+that commits but is wrong. Only an upgrade makes one; a fresh or
+up-to-date database doesn't. The backups aren't pruned yet, so they
+accrue one per upgrade.
+
 ## Versioning
 
 Ported from pota_logger (decided 2026-11-19; tooling and the branch
