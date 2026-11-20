@@ -40,22 +40,66 @@ SCHEMA = files("quote_builder").joinpath("schema.sql").read_text()
 # add the migration and bump SCHEMA_VERSION in the same change. Version 0
 # is the first release's schema (2026.11.20). See REQUIREMENTS.md,
 # Storage.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseTooNew(Exception):
     """The database was written by a newer version of the app."""
 
 
+class MigrationFailed(Exception):
+    """A migration left the database inconsistent (a foreign key dangling)."""
+
+
 def _migrate_to_1(conn: sqlite3.Connection) -> None:
-    # A throwaway column, added only to exercise the migration path (see
-    # REQUIREMENTS.md, Storage). No app code reads it; a later migration
-    # can drop it.
+    # A throwaway column, added to exercise the migration path, then dropped
+    # again by migration 2 (see REQUIREMENTS.md, Storage). No app code reads
+    # it.
     conn.execute("ALTER TABLE businesses ADD COLUMN probe TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_to_2(conn: sqlite3.Connection) -> None:
+    # Drop the throwaway `probe` column. ALTER TABLE DROP COLUMN can't do it
+    # -- SQLite refuses it on a table whose definition carries comments, as
+    # businesses does -- so rebuild the table without the column. This is the
+    # general way to make a change ALTER TABLE can't (dropping a column,
+    # altering a constraint on a STRICT table): create the table anew, copy
+    # the rows, drop the old, rename. businesses is referenced by foreign
+    # keys, so this runs with them off (see _migrate), checked afterwards.
+    conn.execute(
+        """
+        CREATE TABLE businesses_new (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT    NOT NULL DEFAULT '',
+            pilot       INTEGER NOT NULL DEFAULT 0 CHECK (pilot IN (0, 1)),
+            valid_days  INTEGER NOT NULL DEFAULT 30 CHECK (valid_days > 0),
+            extend_days INTEGER CHECK (extend_days > 0),
+            address     TEXT    NOT NULL DEFAULT '',
+            phone       TEXT    NOT NULL DEFAULT '',
+            ext         TEXT    NOT NULL DEFAULT '',
+            email       TEXT    NOT NULL DEFAULT '',
+            website     TEXT    NOT NULL DEFAULT '',
+            terms       TEXT    NOT NULL DEFAULT ''
+        ) STRICT
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO businesses_new
+            (id, name, pilot, valid_days, extend_days,
+             address, phone, ext, email, website, terms)
+        SELECT id, name, pilot, valid_days, extend_days,
+               address, phone, ext, email, website, terms
+        FROM businesses
+        """
+    )
+    conn.execute("DROP TABLE businesses")
+    conn.execute("ALTER TABLE businesses_new RENAME TO businesses")
 
 
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_to_1,
+    2: _migrate_to_2,
 }
 
 # With 34 billion codes, a second clash in a row means something's wrong.
@@ -77,10 +121,9 @@ class NotExtendable(Exception):
 def connect(path: Path | str) -> sqlite3.Connection:
     """Open the database, creating or migrating its tables as needed."""
     # Autocommit while setting up: PRAGMA foreign_keys does nothing inside
-    # a transaction. It's off by default, and only holds per connection.
+    # a transaction, and migrations toggle it around a table rebuild.
     conn = sqlite3.connect(path, autocommit=True)
-    conn.execute("PRAGMA foreign_keys = ON")
-    _ensure_schema(conn)
+    _ensure_schema(conn)  # leaves foreign keys on
     # From here on, `with conn:` wraps a transaction: commit on success,
     # roll back on an exception.
     conn.autocommit = False
@@ -89,9 +132,8 @@ def connect(path: Path | str) -> sqlite3.Connection:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Build a new database at the current version, or migrate an older
-    one up to it. Runs in autocommit (the caller's state), migration steps
-    each in their own transaction so a failure leaves the version behind."""
+    """Build a new database at the current version, or migrate an older one
+    up to it. Runs in autocommit; leaves foreign keys on (per connection)."""
     # A database with no `businesses` table is new; one that has it from an
     # earlier release carries its own user_version (0 for the first).
     fresh = (
@@ -103,21 +145,39 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     if fresh:
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        return
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version > SCHEMA_VERSION:
-        raise DatabaseTooNew(
-            f"database is at schema version {version}, but this app knows "
-            f"only version {SCHEMA_VERSION}; update the app to open it."
-        )
-    conn.autocommit = False
+    else:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            raise DatabaseTooNew(
+                f"database is at schema version {version}, but this app knows "
+                f"only version {SCHEMA_VERSION}; update the app to open it."
+            )
+        if version < SCHEMA_VERSION:
+            _migrate(conn, version)
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate(conn: sqlite3.Connection, version: int) -> None:
+    """Run the migrations from `version` to the current one. A migration may
+    rebuild a table (drop and recreate it to make a change ALTER TABLE can't),
+    which needs foreign keys off; the pragma takes effect only outside a
+    transaction, so it's set here, around the per-migration transactions,
+    and the keys are checked once at the end. Each migration and its version
+    stamp commit together, so a failure rolls back both and leaves the old
+    version."""
+    conn.execute("PRAGMA foreign_keys = OFF")
     for target in range(version + 1, SCHEMA_VERSION + 1):
-        # The change and its version stamp commit together, so a failed
-        # migration rolls back both and the database keeps its old version.
-        with conn:
+        conn.execute("BEGIN")
+        try:
             _MIGRATIONS[target](conn)
             conn.execute(f"PRAGMA user_version = {target}")
-    conn.autocommit = True
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
+    dangling = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if dangling:
+        raise MigrationFailed(f"migration left dangling foreign keys: {dangling}")
 
 
 class NameNeeded(Exception):

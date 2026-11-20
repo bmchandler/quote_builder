@@ -1,4 +1,3 @@
-import re
 import sqlite3
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -138,26 +137,29 @@ def _schema(conn):
 
 
 def _first_release_db(path):
-    """Create a database in the first release's state: the current schema
-    without migration 1's column, stamped at version 0. The column is
-    removed from the schema rather than dropped with ALTER TABLE, which
-    SQLite refuses on a table whose definition carries comments."""
-    v0 = re.sub(
-        r",\s*(?:--[^\n]*\n\s*)*probe\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+''",
-        "",
-        SCHEMA,
-    )
-    assert "probe" not in v0, "failed to strip the probe column"
+    """Create a database in the first release's state, at version 0. Migration
+    1 then 2 add the probe column and drop it again, so the first release's
+    schema is the current one; build it from schema.sql and stamp version 0."""
     conn = sqlite3.connect(path, autocommit=True)
-    conn.executescript(v0)
+    conn.executescript(SCHEMA)
     conn.execute("PRAGMA user_version = 0")
+    return conn
+
+
+def _version_1_db(path):
+    """Create a database at version 1: the current schema plus migration 1's
+    probe column, which migration 2 removes."""
+    conn = sqlite3.connect(path, autocommit=True)
+    conn.executescript(SCHEMA)
+    conn.execute("ALTER TABLE businesses ADD COLUMN probe TEXT NOT NULL DEFAULT ''")
+    conn.execute("PRAGMA user_version = 1")
     return conn
 
 
 def test_fresh_database_is_stamped_at_current_version(tmp_path):
     conn = connect(tmp_path / "quotes.db")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
-    assert "probe" in _columns(conn, "businesses")
+    assert "probe" not in _columns(conn, "businesses")
 
 
 def test_existing_database_is_migrated_keeping_its_data(tmp_path):
@@ -170,8 +172,31 @@ def test_existing_database_is_migrated_keeping_its_data(tmp_path):
 
     conn = connect(path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
-    row = conn.execute("SELECT name, valid_days, probe FROM businesses").fetchone()
-    assert (row["name"], row["valid_days"], row["probe"]) == ("Acme", 45, "")
+    assert "probe" not in _columns(conn, "businesses")
+    row = conn.execute("SELECT name, valid_days FROM businesses").fetchone()
+    assert (row["name"], row["valid_days"]) == ("Acme", 45)
+
+
+def test_dropping_probe_rebuilds_keeping_data_and_foreign_keys(tmp_path):
+    # Migration 2 rebuilds businesses (drop/recreate), which it must do with
+    # the parent's rows and its children's foreign keys intact.
+    path = tmp_path / "quotes.db"
+    old = _version_1_db(path)
+    old.execute("INSERT INTO businesses (id, name) VALUES (1, 'Acme')")
+    old.execute(
+        "INSERT INTO tax_rates (id, business_id, name) VALUES (1, 1, 'Home county')"
+    )
+    old.close()
+
+    conn = connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert "probe" not in _columns(conn, "businesses")
+    assert conn.execute("SELECT name FROM businesses WHERE id = 1").fetchone()[0] == "Acme"
+    # The child still points at the rebuilt parent, and nothing dangles.
+    assert (
+        conn.execute("SELECT business_id FROM tax_rates WHERE id = 1").fetchone()[0] == 1
+    )
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_migrated_database_matches_a_fresh_one(tmp_path):

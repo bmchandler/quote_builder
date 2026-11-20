@@ -383,9 +383,18 @@ version behind. Version 0 is the first release's schema (2026.11.20). A
 database written by a newer app than the one opening it is refused
 (`DatabaseTooNew`), not guessed at. Before the first release this wasn't
 needed — the rule was "delete the database", and it retires here (see
-[Path to first release](#path-to-first-release), step 9). `probe` on
-`businesses` is a throwaway column, read by nothing, added to exercise
-the framework end to end; a later migration can drop it.
+[Path to first release](#path-to-first-release), step 9).
+
+Dropping a column or changing a constraint can't go through `ALTER TABLE`
+(SQLite refuses `DROP COLUMN` on a table whose definition carries
+comments, as ours do, and can't alter a constraint at all), so a
+migration rebuilds the table: create it anew, copy the rows, drop the
+old, rename. A rebuilt table's children would lose their link, so the
+migrations run with `PRAGMA foreign_keys` off and a `foreign_key_check`
+at the end (`MigrationFailed` if anything dangles). A throwaway `probe`
+column exercised the framework end to end: migration 1 added it (an easy
+`ADD COLUMN`) and migration 2 dropped it (the rebuild), leaving the
+schema where it started.
 
 ## Versioning
 
@@ -959,13 +968,16 @@ Ordered, though some can overlap:
    has been "delete the DB" (no migrations before release, see CLAUDE.md
    and [Storage](#storage)), and this is where that rule retires.
 
-   Underway 2026-11-20: a phase-1 smoke test confirmed the failure mode
-   (a column added to an existing table isn't created by `CREATE TABLE IF
-   NOT EXISTS`, so the app hits `no such column`), and the migration
-   framework is built (approach A, `PRAGMA user_version`; see
-   [Storage](#storage)), exercised by a throwaway `probe` column on
-   `businesses`. Still to do: run it through a real release and a
-   version-to-version update (steps 7 and 8).
+   Done 2026-11-20: a phase-1 smoke test confirmed the failure mode (a
+   column added to an existing table isn't created by `CREATE TABLE IF NOT
+   EXISTS`, so the app hits `no such column`), and the migration framework
+   was built (approach A, `PRAGMA user_version`; see [Storage](#storage)).
+   It ran end to end through real releases: a throwaway `probe` column was
+   added in 2026.11.20.1 and a real 2026.11.20→2026.11.20.1 update migrated
+   an existing database with its data intact, then 2026.11.20.2 dropped the
+   column with a table rebuild (the harder path: foreign keys off, checked
+   after). With that, the rule in [Storage](#storage) and CLAUDE.md is now
+   migrations, not "delete the database".
 
 ## Later polish
 

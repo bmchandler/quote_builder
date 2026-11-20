@@ -1,7 +1,6 @@
 """The page, driven by NiceGUI's simulated user: no browser or window."""
 
 import asyncio
-import re
 import sqlite3
 import time
 from dataclasses import replace
@@ -71,14 +70,11 @@ async def user(conn):
 
 
 async def test_app_opens_a_migrated_first_release_database(tmp_path):
-    # A database in the first release's state: the current schema without
-    # migration 1's column, at version 0, with a business already saved.
+    # A database in the first release's state: the schema at version 0, with
+    # a business already saved. connect() runs migrations 1 and 2 on it.
     path = tmp_path / "quotes.db"
-    v0 = re.sub(
-        r",\s*(?:--[^\n]*\n\s*)*probe\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+''", "", SCHEMA
-    )
     old = sqlite3.connect(path, autocommit=True)
-    old.executescript(v0)
+    old.executescript(SCHEMA)
     old.execute("INSERT INTO businesses (name, valid_days) VALUES ('Acme', 30)")
     old.execute("PRAGMA user_version = 0")
     old.close()
