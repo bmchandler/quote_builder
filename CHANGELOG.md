@@ -6,7 +6,7 @@ under Unreleased.
 (The version scheme is set when the release methodology is ported from
 pota_logger; see REQUIREMENTS.md, "Path to first release".)
 
-## Unreleased
+## 2026.11.20
 
 The first release: a desktop app for building price quotes, for micro
 businesses and solo consultants. It runs as a native window on Linux,

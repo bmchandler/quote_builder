@@ -1403,7 +1403,7 @@ wheels = [
 
 [[package]]
 name = "quote-builder"
-version = "0.1.0"
+version = "2026.11.20"
 source = { editable = "." }
 dependencies = [
     { name = "nicegui", extra = ["native"] },
