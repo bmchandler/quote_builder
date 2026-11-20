@@ -6,7 +6,7 @@ under Unreleased.
 (The version scheme is set when the release methodology is ported from
 pota_logger; see REQUIREMENTS.md, "Path to first release".)
 
-## Unreleased
+## 2026.11.20.1
 
 ### Changed
 
