@@ -4,7 +4,7 @@ What changed in each release, newest first. Versions are dates
 (`YYYY.M.D`; see RELEASING.md). Changes not released yet are under
 Unreleased.
 
-## Unreleased
+## 2026.11.20.4
 
 ### Added
 

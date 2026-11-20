@@ -1,6 +1,6 @@
 [project]
 name = "quote-builder"
-version = "2026.11.20.3+dev"
+version = "2026.11.20.4"
 description = "A simple quote builder for micro businesses and solo consultants."
 readme = "README.md"
 requires-python = ">=3.13"
