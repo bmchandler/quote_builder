@@ -6,6 +6,21 @@ under Unreleased.
 (The version scheme is set when the release methodology is ported from
 pota_logger; see REQUIREMENTS.md, "Path to first release".)
 
+## Unreleased
+
+### Changed
+
+- The database now carries a schema version and brings itself up to date
+  when you update the app, so a release can change the schema without
+  asking you to start over (groundwork; see REQUIREMENTS.md, Storage). A
+  database from a newer app than the one opening it is refused rather
+  than guessed at.
+
+### Added
+
+- A throwaway column (`probe` on businesses), read by nothing, to
+  exercise the migration path end to end.
+
 ## 2026.11.20
 
 The first release: a desktop app for building price quotes, for micro
