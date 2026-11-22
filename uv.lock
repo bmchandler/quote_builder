@@ -1398,7 +1398,7 @@ wheels = [
 
 [[package]]
 name = "quote-builder"
-version = "2026.11.22"
+version = "2026.11.22+dev"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
