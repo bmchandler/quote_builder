@@ -472,6 +472,21 @@ release](#path-to-first-release), step 3).
   are for releases only: a dev build is installed by branch (`@dev`,
   which `uv tool upgrade` follows) or by commit (`@<commit>`, which it
   doesn't).
+- Branch model: fast-forward only, no merge commits (settled
+  2026-11-22). `main` is a bookmark on `dev`'s linear history, moved
+  forward to each release's commit (`tag_new_version.py`, `update-ref`),
+  never merged into, so `main` stays an ancestor of `dev` and a push of
+  `main` is always a fast-forward. This keeps one linear history, keeps
+  `branch_guard.py` meaningful (a merge commit would itself be a commit
+  on `main`, which it refuses), and keeps the version-to-commit mapping
+  exact (`main` points *at* the tagged commit, not a merge above it).
+  A merge commit buys nothing here: the release spine is the tags
+  (`git tag --sort=-creatordate`), not `main`'s own history. Revisit
+  only if the project gains multiple contributors integrating through
+  reviewed PRs (where `main` as a protected integration branch with a
+  first-parent release history earns its keep), or needs to maintain an
+  old release apart from `dev` (a hotfix branch from a tag); both are
+  deliberate changes, not the default.
 - An installed dev build (its version ends `+dev`) keeps its data in
   `~/.local/share/quote-builder-dev/` instead of a release's
   `quote-builder/`, so testing one never touches a release's quotes
