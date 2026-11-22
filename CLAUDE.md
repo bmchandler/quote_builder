@@ -173,6 +173,16 @@ of one: a second copy drifts, and can mask a problem in this file.
   newest release's tag, moved there by the release step; push `dev` and
   releases freely, but the hooks refuse pushing `main` to a non-release.
   See REQUIREMENTS.md, Versioning and Path to first release.
+- Frozen dependencies: `[project.dependencies]` pins the whole runtime
+  closure to exact `==` versions from `uv.lock`, because `uv tool
+  install`/`upgrade` from git ignores the lock and re-resolves from
+  those specifiers (so a bare `>=` would let transitive deps float). The
+  two native bindings (`pygobject`, `pycairo`) keep a `>=` floor instead
+  (they compile against the system's GTK/cairo). `regen_release_deps.py`
+  (beside `tag_new_version.py`, which imports `pins_match` from it)
+  generates the pins; the release script refuses when they're out of
+  sync with the lock. After `uv lock --upgrade`: test, run it, commit
+  (see REQUIREMENTS.md, Versioning; RELEASING.md, Frozen dependencies).
 - UI/UX targets the business user for now, not the customer: what a
   customer sees is settled when building the parts they see.
 - Check screen changes in the browser pane before handing over: a

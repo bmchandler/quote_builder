@@ -429,8 +429,10 @@ release](#path-to-first-release), step 3).
   date, with `.1`, `.2` when that's tagged, or a version given, refused
   if malformed, already tagged, or older than the newest tag. It refuses
   a tree with changes, a branch other than `dev`, a `main` that `dev`
-  doesn't lead on from, or nothing under `## Unreleased` in CHANGELOG.md,
-  and asks `Tag <version>? [y/N]` before changing anything; on `y` it
+  doesn't lead on from, nothing under `## Unreleased` in CHANGELOG.md, or
+  `[project.dependencies]` out of sync with `uv.lock` (see Frozen
+  dependencies below), and asks `Tag <version>? [y/N]` before changing
+  anything; on `y` it
   runs the tests first (they take a while, so a mistake stops at once).
   Then, always together and in this order:
   1. `uv version <date>`, which sets the version in `pyproject.toml`
@@ -479,6 +481,24 @@ release](#path-to-first-release), step 3).
   a push that would set the remote's `main` to a commit no release tag
   points at, or delete it. Its install changes only its own line in each
   hook file (git_hooks.py); see [DEVELOPMENT.md](DEVELOPMENT.md).
+- Frozen dependencies (decided 2026-11-22): end users install with
+  `uv tool install`/`upgrade` from git, which ignores `uv.lock` and
+  re-resolves from the version specifiers in `[project.dependencies]`.
+  A bare `nicegui>=...` there leaves every transitive dependency to
+  float, so `uv tool upgrade` pulls whatever is newest. So
+  `[project.dependencies]` pins the whole runtime closure to exact `==`
+  versions, for a reproducible install. The two native bindings
+  (`pygobject`, `pycairo`) are the exception: they compile against the
+  user's own system GTK and cairo, so they keep a `>=` floor at the
+  locked version rather than an exact pin that could refuse to build on
+  a differing system. The pins are generated from `uv.lock`
+  (`regen_release_deps.py`, beside `tag_new_version.py`, for developers,
+  not in the package), so the frozen set is one the tests ran against;
+  `tag_new_version.py` refuses a release whose `[project.dependencies]`
+  don't match the lock (`pins_match`), so an upgraded lock can't ship
+  without re-pinning. The loop: on `dev`, `uv lock --upgrade`, test,
+  `regen_release_deps.py`, commit, release (see RELEASING.md, Frozen
+  dependencies).
 
 ## Status and plan
 

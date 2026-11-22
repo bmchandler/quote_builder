@@ -4,6 +4,13 @@ What changed in each release, newest first. Versions are dates
 (`YYYY.M.D`; see RELEASING.md). Changes not released yet are under
 Unreleased.
 
+## Unreleased
+
+### Changed
+
+- Installs now pin the app's dependencies, so upgrading the app only
+  changes them when a new release does.
+
 ## 2026.11.20.5
 
 ### Added
