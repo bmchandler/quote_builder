@@ -520,6 +520,18 @@ release](#path-to-first-release), step 3).
   without re-pinning. The loop: on `dev`, `uv lock --upgrade`, test,
   `regen_release_deps.py`, commit, release (see RELEASING.md, Frozen
   dependencies).
+- Linux-only lock (decided 2026-11-22): the app is Linux-only, so
+  `[tool.uv] environments = ["sys_platform == 'linux'"]` scopes the lock
+  to Linux. A universal resolution would otherwise pull macOS/Windows/BSD
+  packages (`pyobjc`, `pythonnet`, `qtpy`, …) into the lock, and so into
+  the pins — foreign packages a Linux-only app has no reason to freeze.
+  With the scope set they never enter the lock. uv then annotates every
+  pin with `; sys_platform == 'linux'`; that marker is redundant with the
+  `environments` setting but is kept as uv emits it, not stripped, so the
+  pins stay a verbatim copy of the lock and `regen_release_deps.py` stays
+  a plain export-and-compare. This scopes *what we pin*; it doesn't block
+  a non-Linux install (that path re-resolves, and the native bindings
+  then fail to build without the system GTK anyway).
 
 ## Status and plan
 

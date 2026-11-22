@@ -88,6 +88,17 @@ exact pin could refuse to build where the system wants a different one.
 They keep a `>=` floor at the locked version, so the install can take a
 newer binding that matches the system.
 
+The app is Linux-only (the GTK native window), so `pyproject.toml`'s
+`[tool.uv] environments` restricts the lock to Linux (`sys_platform ==
+'linux'`). The macOS/Windows/BSD packages a universal resolution would
+pull — `pyobjc`, `pythonnet`, `qtpy`, and the like — never enter the
+lock, so there's nothing foreign to pin or compare. One visible effect:
+`uv export` then stamps every pin with `; sys_platform == 'linux'`. That
+marker is redundant with the `environments` setting, but it's kept, not
+stripped: it's the exact text `uv export` emits, so the pins stay a
+verbatim copy of the lock and `regen_release_deps.py` stays a plain
+export-and-compare, with no marker-rewriting to get wrong.
+
 Those pins are generated from `uv.lock`, so the frozen set is always
 one the tests ran against:
 

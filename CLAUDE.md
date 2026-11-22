@@ -183,6 +183,10 @@ of one: a second copy drifts, and can mask a problem in this file.
   generates the pins; the release script refuses when they're out of
   sync with the lock. After `uv lock --upgrade`: test, run it, commit
   (see REQUIREMENTS.md, Versioning; RELEASING.md, Frozen dependencies).
+  The lock is scoped to Linux (`[tool.uv] environments`), so no
+  macOS/Windows/BSD packages get pinned; uv stamps each pin with
+  `; sys_platform == 'linux'`, kept as emitted (not stripped) so the
+  pins stay a verbatim copy of the lock.
 - Only a change a user would notice earns a release. Developer-doc-only
   changes (REQUIREMENTS.md, DEVELOPMENT.md, CLAUDE.md), tests, and
   release tooling ride `dev` to both remotes with no version bump and no
