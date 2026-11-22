@@ -183,6 +183,11 @@ of one: a second copy drifts, and can mask a problem in this file.
   generates the pins; the release script refuses when they're out of
   sync with the lock. After `uv lock --upgrade`: test, run it, commit
   (see REQUIREMENTS.md, Versioning; RELEASING.md, Frozen dependencies).
+- Only a change a user would notice earns a release. Developer-doc-only
+  changes (REQUIREMENTS.md, DEVELOPMENT.md, CLAUDE.md), tests, and
+  release tooling ride `dev` to both remotes with no version bump and no
+  changelog line: the changelog is user-facing, with no honest line for
+  them (see REQUIREMENTS.md, Versioning).
 - UI/UX targets the business user for now, not the customer: what a
   customer sees is settled when building the parts they see.
 - Check screen changes in the browser pane before handing over: a

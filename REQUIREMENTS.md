@@ -496,6 +496,12 @@ release](#path-to-first-release), step 3).
   a push that would set the remote's `main` to a commit no release tag
   points at, or delete it. Its install changes only its own line in each
   hook file (git_hooks.py); see [DEVELOPMENT.md](DEVELOPMENT.md).
+- Dev-doc-only changes aren't releases (settled 2026-11-22): only a
+  change a user would notice earns a version bump. Developer docs
+  (REQUIREMENTS.md, DEVELOPMENT.md, CLAUDE.md), tests, and release
+  tooling ride `dev` to both remotes with no release and no changelog
+  line — the changelog is user-facing, and there's no honest line for
+  them — so `main` stays put until the next user-facing release.
 - Frozen dependencies (decided 2026-11-22): end users install with
   `uv tool install`/`upgrade` from git, which ignores `uv.lock` and
   re-resolves from the version specifiers in `[project.dependencies]`.
