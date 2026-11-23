@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-from quote_builder.git_hooks import HEADER, add_hook_line, hook_line
+from git_hooks import HEADER, add_hook_line, hook_line
 
 
 def test_first_guard_writes_the_file(tmp_path):

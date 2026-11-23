@@ -1014,7 +1014,7 @@ Ordered, though some can overlap:
    (e.g. `tag_new_version.py`), adapted to this project.
 
    Done 2026-11-19. Tooling: `tag_new_version.py`, `branch_guard.py`,
-   `src/quote_builder/git_hooks.py`, `RELEASING.md`, the dev-build data
+   `git_hooks.py`, `RELEASING.md`, the dev-build data
    folder split (data_folder.py), and the [Versioning](#versioning)
    section, all with tests. Cutover: `dev` created from the last `main`
    commit, the branch guard installed, work now on `dev`, and CLAUDE.md
